@@ -2,6 +2,7 @@ package org.example.demo.service;
 
 import lombok.RequiredArgsConstructor;
 import org.example.demo.dto.request.BacSiRequest;
+import org.example.demo.dto.request.CreateDoctorAccountRequest;
 import org.example.demo.dto.response.BacSiDetailResponse;
 import org.example.demo.dto.response.BacSiResponse;
 import org.example.demo.entity.BacSi;
@@ -18,6 +19,7 @@ import org.example.demo.repository.NguoiDungRepository;
 import org.example.demo.repository.TrinhDoRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +37,79 @@ public class BacSiService {
     private final NguoiDungRepository nguoiDungRepository;
     private final ChuyenKhoaRepository chuyenKhoaRepository;
     private final TrinhDoRepository trinhDoRepository;
+    private final PasswordEncoder passwordEncoder;
+    
+    /**
+     * COMBINED API: Tạo tài khoản bác sĩ (NguoiDung + BacSi) trong 1 transaction
+     * Admin only
+     * Logic:
+     * 1. Kiểm tra email đã tồn tại chưa
+     * 2. Tạo NguoiDung với VaiTro = BacSi
+     * 3. Tạo BacSi và link với NguoiDung
+     * 4. Auto set giá khám từ TrinhDo nếu không có giá custom
+     */
+    @Transactional
+    public BacSiResponse createAccount(CreateDoctorAccountRequest request) {
+        // 1. Kiểm tra email đã tồn tại chưa
+        if (nguoiDungRepository.existsByEmail(request.getEmail())) {
+            throw new ConflictException("Email đã được sử dụng");
+        }
+        
+        // 2. Kiểm tra số điện thoại đã tồn tại chưa
+        if (nguoiDungRepository.existsBySoDienThoai(request.getSoDienThoai())) {
+            throw new ConflictException("Số điện thoại đã được sử dụng");
+        }
+        
+        // 3. Kiểm tra ChuyenKhoa
+        ChuyenKhoa chuyenKhoa = chuyenKhoaRepository.findById(request.getChuyenKhoaID())
+                .orElseThrow(() -> new ResourceNotFoundException("Chuyên khoa không tồn tại"));
+        
+        // 4. Kiểm tra TrinhDo
+        TrinhDo trinhDo = trinhDoRepository.findById(request.getTrinhDoID())
+                .orElseThrow(() -> new ResourceNotFoundException("Trình độ không tồn tại"));
+        
+        // 5. Tạo NguoiDung
+        NguoiDung nguoiDung = new NguoiDung();
+        nguoiDung.setHoTen(request.getHoTen());
+        nguoiDung.setEmail(request.getEmail());
+        nguoiDung.setMatKhau(passwordEncoder.encode(request.getPassword())); // Hash password
+        nguoiDung.setSoDienThoai(request.getSoDienThoai());
+        nguoiDung.setDiaChi(request.getDiaChi());
+        nguoiDung.setNgaySinh(request.getNgaySinh());
+        nguoiDung.setGioiTinh(request.getGioiTinh());
+        nguoiDung.setVaiTro(VaiTro.BacSi); // Tự động set vai trò
+        nguoiDung.setTrangThai(true);
+        nguoiDung.setIsDeleted(false);
+        nguoiDung.setBadPoint(0);
+        
+        // Lưu NguoiDung trước
+        NguoiDung savedNguoiDung = nguoiDungRepository.save(nguoiDung);
+        
+        // 6. Tạo BacSi
+        BacSi bacSi = new BacSi();
+        bacSi.setNguoiDung(savedNguoiDung);
+        bacSi.setChuyenKhoa(chuyenKhoa);
+        bacSi.setTrinhDo(trinhDo);
+        bacSi.setSoNamKinhNghiem(request.getSoNamKinhNghiem());
+        bacSi.setGioiThieu(request.getGioiThieu());
+        bacSi.setQuaTrinhDaoTao(request.getQuaTrinhDaoTao());
+        bacSi.setKinhNghiemLamViec(request.getKinhNghiemLamViec());
+        bacSi.setThanhTich(request.getThanhTich());
+        bacSi.setChungChi(request.getChungChi());
+        bacSi.setSoBenhNhanToiDaMotNgay(request.getSoBenhNhanToiDaMotNgay());
+        bacSi.setThoiGianKhamMotCa(request.getThoiGianKhamMotCa());
+        bacSi.setTrangThaiCongViec(request.getTrangThaiCongViec());
+        bacSi.setIsDeleted(false);
+        
+        // 7. Set giá khám: TỰ ĐỘNG lấy từ TrinhDo (không cho custom)
+        bacSi.setGiaKham(trinhDo.getGiaKham());
+        
+        // 8. Lưu BacSi
+        BacSi savedBacSi = bacSiRepository.save(bacSi);
+        
+        // 9. Convert sang Response
+        return convertToResponse(savedBacSi);
+    }
     
     /**
      * Tạo mới bác sĩ (Admin only)
@@ -83,12 +158,8 @@ public class BacSiService {
         bacSi.setThoiGianKhamMotCa(request.getThoiGianKhamMotCa());
         bacSi.setTrangThaiCongViec(request.getTrangThaiCongViec());
         
-        // 7. Set giá khám: Nếu request có giá → dùng giá đó, không thì lấy từ TrinhDo
-        if (request.getGiaKham() != null) {
-            bacSi.setGiaKham(request.getGiaKham());
-        } else {
-            bacSi.setGiaKham(trinhDo.getGiaKham());
-        }
+        // 7. Set giá khám: TỰ ĐỘNG lấy từ TrinhDo (không cho custom)
+        bacSi.setGiaKham(trinhDo.getGiaKham());
         
         // 8. Lưu vào DB
         BacSi saved = bacSiRepository.save(bacSi);
@@ -168,10 +239,8 @@ public class BacSiService {
                     .orElseThrow(() -> new ResourceNotFoundException("Trình độ không tồn tại"));
             bacSi.setTrinhDo(trinhDo);
             
-            // Nếu không có giá custom → update giá theo TrinhDo mới
-            if (request.getGiaKham() == null) {
-                bacSi.setGiaKham(trinhDo.getGiaKham());
-            }
+            // TỰ ĐỘNG update giá theo TrinhDo mới (không cho custom)
+            bacSi.setGiaKham(trinhDo.getGiaKham());
         }
         
         // 4. Cập nhật các field khác
@@ -185,10 +254,8 @@ public class BacSiService {
         bacSi.setThoiGianKhamMotCa(request.getThoiGianKhamMotCa());
         bacSi.setTrangThaiCongViec(request.getTrangThaiCongViec());
         
-        // 5. Cập nhật giá nếu có
-        if (request.getGiaKham() != null) {
-            bacSi.setGiaKham(request.getGiaKham());
-        }
+        // 5. ⚠️ GIÁ KHÁM KHÔNG CẬP NHẬT RIÊNG
+        // Giá khám chỉ thay đổi khi đổi TrinhDo (đã xử lý ở bước 3)
         
         // 6. Lưu vào DB
         BacSi updated = bacSiRepository.save(bacSi);
@@ -198,16 +265,23 @@ public class BacSiService {
     
     /**
      * Xóa bác sĩ (soft delete)
+     * Cascade: Xóa mềm cả BacSi và NguoiDung
      */
     @Transactional
     public void delete(Integer id) {
         BacSi bacSi = bacSiRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bác sĩ không tồn tại"));
         
-        // Soft delete
+        // Soft delete BacSi
         bacSi.setIsDeleted(true);
         bacSi.setTrangThaiCongViec(false); // Tắt trạng thái làm việc
         bacSiRepository.save(bacSi);
+        
+        // Cascade: Soft delete NguoiDung
+        NguoiDung nguoiDung = bacSi.getNguoiDung();
+        nguoiDung.setIsDeleted(true);
+        nguoiDung.setTrangThai(false); // Cũng disable tài khoản
+        nguoiDungRepository.save(nguoiDung);
     }
     
     /**
@@ -223,6 +297,34 @@ public class BacSiService {
         BacSi updated = bacSiRepository.save(bacSi);
         
         return convertToResponse(updated);
+    }
+    
+    /**
+     * Khôi phục bác sĩ đã xóa (Restore)
+     * Cascade: Khôi phục cả BacSi và NguoiDung
+     */
+    @Transactional
+    public BacSiResponse restore(Integer id) {
+        BacSi bacSi = bacSiRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Bác sĩ không tồn tại"));
+        
+        // Kiểm tra bác sĩ có bị xóa không
+        if (!bacSi.getIsDeleted()) {
+            throw new BadRequestException("Bác sĩ chưa bị xóa, không cần khôi phục");
+        }
+        
+        // Restore BacSi
+        bacSi.setIsDeleted(false);
+        bacSi.setTrangThaiCongViec(true); // Bật lại trạng thái làm việc
+        bacSiRepository.save(bacSi);
+        
+        // Cascade: Restore NguoiDung
+        NguoiDung nguoiDung = bacSi.getNguoiDung();
+        nguoiDung.setIsDeleted(false);
+        nguoiDung.setTrangThai(true); // Enable tài khoản
+        nguoiDungRepository.save(nguoiDung);
+        
+        return convertToResponse(bacSi);
     }
     
     /**

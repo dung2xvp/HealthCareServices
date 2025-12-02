@@ -89,18 +89,20 @@ public class AuthService {
         nguoiDungRepository.save(nguoiDung);
 
         // 5. Gửi email verification
-        // TODO: Cấu hình email trong application.properties trước khi bật
-        // emailService.sendVerificationEmail(
-        //     nguoiDung.getEmail(),
-        //     nguoiDung.getHoTen(),
-        //     verificationCode
-        // );
-        
-        // DEVELOPMENT: In mã verification ra console thay vì gửi email
-        System.out.println("========================================");
-        System.out.println("VERIFICATION CODE for " + nguoiDung.getEmail());
-        System.out.println("Code: " + verificationCode);
-        System.out.println("========================================");
+        try {
+            emailService.sendVerificationEmail(
+                nguoiDung.getEmail(),
+                nguoiDung.getHoTen(),
+                verificationCode
+            );
+        } catch (Exception e) {
+            // Log lỗi nhưng không throw để không block đăng ký
+            System.err.println("⚠️ Failed to send verification email: " + e.getMessage());
+            System.out.println("========================================");
+            System.out.println("VERIFICATION CODE for " + nguoiDung.getEmail());
+            System.out.println("Code: " + verificationCode);
+            System.out.println("========================================");
+        }
     }
 
     /**
@@ -191,18 +193,19 @@ public class AuthService {
         nguoiDungRepository.save(nguoiDung);
 
         // 4. Gửi email
-        // TODO: Cấu hình email trước khi bật
-        // emailService.resendVerificationEmail(
-        //     nguoiDung.getEmail(),
-        //     nguoiDung.getHoTen(),
-        //     newCode
-        // );
-        
-        // DEVELOPMENT: In mã ra console
-        System.out.println("========================================");
-        System.out.println("RESEND VERIFICATION CODE for " + nguoiDung.getEmail());
-        System.out.println("Code: " + newCode);
-        System.out.println("========================================");
+        try {
+            emailService.resendVerificationEmail(
+                nguoiDung.getEmail(),
+                nguoiDung.getHoTen(),
+                newCode
+            );
+        } catch (Exception e) {
+            System.err.println("⚠️ Failed to resend verification email: " + e.getMessage());
+            System.out.println("========================================");
+            System.out.println("RESEND VERIFICATION CODE for " + nguoiDung.getEmail());
+            System.out.println("Code: " + newCode);
+            System.out.println("========================================");
+        }
     }
 
     /**
@@ -221,18 +224,19 @@ public class AuthService {
         nguoiDungRepository.save(nguoiDung);
 
         // 3. Gửi email
-        // TODO: Cấu hình email trước khi bật
-        // emailService.sendPasswordResetEmail(
-        //     nguoiDung.getEmail(),
-        //     nguoiDung.getHoTen(),
-        //     resetCode
-        // );
-        
-        // DEVELOPMENT: In mã ra console
-        System.out.println("========================================");
-        System.out.println("PASSWORD RESET CODE for " + nguoiDung.getEmail());
-        System.out.println("Code: " + resetCode);
-        System.out.println("========================================");
+        try {
+            emailService.sendPasswordResetEmail(
+                nguoiDung.getEmail(),
+                nguoiDung.getHoTen(),
+                resetCode
+            );
+        } catch (Exception e) {
+            System.err.println("⚠️ Failed to send password reset email: " + e.getMessage());
+            System.out.println("========================================");
+            System.out.println("PASSWORD RESET CODE for " + nguoiDung.getEmail());
+            System.out.println("Code: " + resetCode);
+            System.out.println("========================================");
+        }
     }
 
     /**

@@ -28,6 +28,12 @@ public interface NguoiDungRepository extends JpaRepository<NguoiDung, Integer> {
     Boolean existsByEmail(String email);
     
     /**
+     * Kiểm tra số điện thoại đã tồn tại chưa (dùng cho REGISTER)
+     * @return true nếu số điện thoại đã tồn tại
+     */
+    Boolean existsBySoDienThoai(String soDienThoai);
+    
+    /**
      * Tìm user theo email VÀ trạng thái active
      * Dùng khi muốn lấy user đã verify email
      */

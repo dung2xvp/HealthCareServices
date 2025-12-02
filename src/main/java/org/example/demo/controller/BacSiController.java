@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.demo.dto.request.BacSiRequest;
+import org.example.demo.dto.request.CreateDoctorAccountRequest;
 import org.example.demo.dto.response.BacSiDetailResponse;
 import org.example.demo.dto.response.BacSiResponse;
 import org.example.demo.dto.response.ErrorResponse;
@@ -31,15 +32,17 @@ import java.util.List;
  * REST Controller quản lý Bác Sĩ
  * 
  * APIs:
- * - POST   /api/doctors              (Admin) - Tạo bác sĩ
+ * - POST   /api/doctors/create-account (Admin) - Tạo tài khoản bác sĩ (Combined API)
+ * - POST   /api/doctors              (Admin) - Tạo bác sĩ (từ NguoiDung có sẵn)
  * - GET    /api/doctors              (Public) - Lấy danh sách
  * - GET    /api/doctors/{id}         (Public) - Lấy chi tiết
  * - GET    /api/doctors/specialty/{chuyenKhoaId}  (Public) - Lấy theo chuyên khoa
  * - GET    /api/doctors/search       (Public) - Tìm kiếm
  * - GET    /api/doctors/top-experienced (Public) - Lấy top bác sĩ kinh nghiệm
  * - PUT    /api/doctors/{id}         (Admin) - Cập nhật
- * - DELETE /api/doctors/{id}         (Admin) - Xóa
+ * - DELETE /api/doctors/{id}         (Admin) - Xóa (soft delete cascade)
  * - PUT    /api/doctors/{id}/toggle-status (Admin) - Bật/tắt trạng thái
+ * - PUT    /api/doctors/{id}/restore (Admin) - Khôi phục bác sĩ đã xóa
  */
 @RestController
 @RequestMapping("/api/doctors")
@@ -51,12 +54,59 @@ public class BacSiController {
     
     // ==================== CREATE ====================
     
+    /**
+     * COMBINED API: Tạo tài khoản bác sĩ (NguoiDung + BacSi) trong 1 lần
+     * Đây là API khuyến nghị để tạo bác sĩ mới
+     */
+    @PostMapping("/create-account")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(
+        summary = "Tạo tài khoản bác sĩ mới (Admin only) - RECOMMENDED",
+        description = "Tạo cả tài khoản người dùng VÀ hồ sơ bác sĩ trong 1 transaction. " +
+                      "API này giúp đơn giản hóa việc tạo bác sĩ mới. " +
+                      "⚠️ Giá khám TỰ ĐỘNG lấy từ Trình Độ (không cần nhập).",
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @ApiResponses(value = {
+        @ApiResponse(
+            responseCode = "201",
+            description = "Tạo tài khoản bác sĩ thành công",
+            content = @Content(schema = @Schema(implementation = BacSiResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Dữ liệu không hợp lệ",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "404",
+            description = "Chuyên khoa/Trình độ không tồn tại",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "409",
+            description = "Email hoặc số điện thoại đã được sử dụng",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+        )
+    })
+    public ResponseEntity<BacSiResponse> createDoctorAccount(
+            @Valid @RequestBody CreateDoctorAccountRequest request
+    ) {
+        BacSiResponse response = bacSiService.createAccount(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+    
+    /**
+     * API cũ: Tạo bác sĩ từ NguoiDung có sẵn
+     * Sử dụng khi đã có tài khoản NguoiDung với VaiTro = BacSi
+     */
     @PostMapping
     @PreAuthorize("hasAuthority('Admin')")
     @Operation(
-        summary = "Tạo hồ sơ bác sĩ mới (Admin only)",
+        summary = "Tạo hồ sơ bác sĩ từ tài khoản có sẵn (Admin only)",
         description = "Tạo hồ sơ bác sĩ từ NguoiDung có VaiTro = BacSi. " +
-                      "Giá khám có thể tùy chỉnh hoặc lấy mặc định từ TrinhDo.",
+                      "⚠️ Giá khám TỰ ĐỘNG lấy từ Trình Độ (không cần nhập). " +
+                      "Nên dùng /create-account để đơn giản hơn.",
         security = @SecurityRequirement(name = "bearerAuth")
     )
     @ApiResponses(value = {
@@ -222,7 +272,8 @@ public class BacSiController {
     @PreAuthorize("hasAuthority('Admin')")
     @Operation(
         summary = "Cập nhật thông tin bác sĩ (Admin only)",
-        description = "Cập nhật thông tin bác sĩ bao gồm chuyên khoa, trình độ, giá khám...",
+        description = "Cập nhật thông tin bác sĩ bao gồm chuyên khoa, trình độ... " +
+                      "⚠️ Giá khám TỰ ĐỘNG cập nhật khi đổi Trình Độ (không cập nhật riêng).",
         security = @SecurityRequirement(name = "bearerAuth")
     )
     @ApiResponses(value = {
@@ -285,7 +336,10 @@ public class BacSiController {
     @PreAuthorize("hasAuthority('Admin')")
     @Operation(
         summary = "Xóa bác sĩ (Admin only)",
-        description = "Xóa mềm bác sĩ (soft delete). Bác sĩ vẫn tồn tại trong DB nhưng bị đánh dấu xóa.",
+        description = "Xóa mềm bác sĩ (soft delete). " +
+                      "Bác sĩ vẫn tồn tại trong DB nhưng bị đánh dấu xóa. " +
+                      "Cascade: Tài khoản người dùng cũng bị vô hiệu hóa. " +
+                      "Có thể khôi phục bằng API /restore.",
         security = @SecurityRequirement(name = "bearerAuth")
     )
     @ApiResponses(value = {
@@ -305,6 +359,40 @@ public class BacSiController {
     ) {
         bacSiService.delete(id);
         return ResponseEntity.ok(new MessageResponse("Xóa bác sĩ thành công"));
+    }
+    
+    @PutMapping("/{id}/restore")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(
+        summary = "Khôi phục bác sĩ đã xóa (Admin only)",
+        description = "Khôi phục bác sĩ đã bị xóa mềm. " +
+                      "Cascade: Tài khoản người dùng cũng được kích hoạt lại. " +
+                      "Trạng thái làm việc sẽ được bật lại.",
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @ApiResponses(value = {
+        @ApiResponse(
+            responseCode = "200",
+            description = "Khôi phục thành công",
+            content = @Content(schema = @Schema(implementation = BacSiResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "400",
+            description = "Bác sĩ chưa bị xóa",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+        ),
+        @ApiResponse(
+            responseCode = "404",
+            description = "Bác sĩ không tồn tại",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))
+        )
+    })
+    public ResponseEntity<BacSiResponse> restoreDoctor(
+            @Parameter(description = "ID của bác sĩ cần khôi phục")
+            @PathVariable Integer id
+    ) {
+        BacSiResponse response = bacSiService.restore(id);
+        return ResponseEntity.ok(response);
     }
 }
 

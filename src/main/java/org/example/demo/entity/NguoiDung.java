@@ -54,6 +54,9 @@ public class NguoiDung extends BaseEntity {
     @Column(name = "TrangThai")
     private Boolean trangThai = true;
     
+    @Column(name = "IsDeleted")
+    private Boolean isDeleted = false;
+    
     @Column(name = "AvatarUrl")
     private String avatarUrl;
 

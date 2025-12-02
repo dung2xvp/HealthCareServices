@@ -5,8 +5,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
-
 /**
  * DTO cho request tạo/cập nhật bác sĩ
  */
@@ -72,13 +70,10 @@ public class BacSiRequest {
     private String chungChi;
     
     /**
-     * Giá khám (tùy chọn)
-     * Nếu null → sẽ lấy giá mặc định từ TrinhDo
-     * Nếu có giá → override giá của TrinhDo
+     * ⚠️ GIÁ KHÁM TỰ ĐỘNG LẤY TỪ TRÌNH ĐỘ
+     * Không cần nhập giá khám, hệ thống sẽ tự động lấy từ TrinhDo
+     * Khi thay đổi TrinhDo, giá khám sẽ tự động cập nhật theo
      */
-    @DecimalMin(value = "0.0", message = "Giá khám phải >= 0")
-    @DecimalMax(value = "10000000.0", message = "Giá khám không được vượt quá 10 triệu")
-    private BigDecimal giaKham;
     
     /**
      * Số bệnh nhân tối đa trong 1 ngày
