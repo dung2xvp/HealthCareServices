@@ -49,6 +49,36 @@ public interface DatLichKhamRepository extends JpaRepository<DatLichKham, Intege
     List<DatLichKham> findByBenhNhan_NguoiDungIDOrderByNgayKhamDesc(Integer benhNhanID);
     
     /**
+     * Tìm lịch của bệnh nhân với phân trang (sorted by creation date)
+     */
+    Page<DatLichKham> findByBenhNhan_NguoiDungIDOrderByNgayDatDesc(Integer benhNhanID, Pageable pageable);
+    
+    /**
+     * Tìm lịch của bác sĩ theo ngày khám
+     */
+    List<DatLichKham> findByBacSi_BacSiIDAndNgayKhamOrderByGioKhamAsc(Integer bacSiID, LocalDate ngayKham);
+    
+    /**
+     * Check slot đã bị đặt chưa (simplified - không check status)
+     */
+    boolean existsByBacSi_BacSiIDAndNgayKhamAndCaAndGioKham(
+        Integer bacSiID, 
+        LocalDate ngayKham, 
+        CaLamViec ca, 
+        LocalTime gioKham
+    );
+    
+    /**
+     * Check bệnh nhân có conflict không
+     */
+    boolean existsByBenhNhan_NguoiDungIDAndNgayKhamAndCaAndGioKham(
+        Integer benhNhanID,
+        LocalDate ngayKham,
+        CaLamViec ca,
+        LocalTime gioKham
+    );
+    
+    /**
      * Tìm tất cả lịch của 1 bác sĩ
      */
     List<DatLichKham> findByBacSi_BacSiIDOrderByNgayKhamDesc(Integer bacSiID);

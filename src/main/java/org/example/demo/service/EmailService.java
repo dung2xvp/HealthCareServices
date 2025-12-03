@@ -92,5 +92,24 @@ public class EmailService {
         mailSender.send(message);
         System.out.println("Sent appointment confirmed email to: " + toEmail);
     }
+
+    /**
+     * Gửi email thông báo chung (dùng cho NotificationService)
+     */
+    public void sendNotificationEmail(String toEmail, String hoTen, String subject, String content) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(toEmail);
+        message.setSubject(subject + " - HealthCare Booking");
+        message.setText(String.format(
+            "Xin chào %s,\n\n" +
+            "%s\n\n" +
+            "Trân trọng,\n" +
+            "HealthCare Booking Team",
+            hoTen, content
+        ));
+        
+        mailSender.send(message);
+        System.out.println("Sent notification email to: " + toEmail);
+    }
 }
 

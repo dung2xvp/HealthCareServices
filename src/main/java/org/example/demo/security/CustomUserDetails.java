@@ -85,5 +85,12 @@ public class CustomUserDetails implements UserDetails {
     public NguoiDung getNguoiDung() {
         return nguoiDung;
     }
+    
+    /**
+     * Lấy ID người dùng (helper method for controllers)
+     */
+    public Integer getNguoiDungID() {
+        return nguoiDung.getNguoiDungID();
+    }
 }
 

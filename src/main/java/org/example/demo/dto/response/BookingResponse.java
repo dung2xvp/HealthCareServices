@@ -248,6 +248,13 @@ public class BookingResponse {
     // ===== FACTORY METHOD =====
     
     /**
+     * Alias for from() method (for convenience)
+     */
+    public static BookingResponse of(DatLichKham entity) {
+        return from(entity);
+    }
+    
+    /**
      * Convert từ entity sang DTO
      */
     public static BookingResponse from(DatLichKham entity) {
