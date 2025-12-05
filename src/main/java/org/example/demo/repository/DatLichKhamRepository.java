@@ -77,6 +77,27 @@ public interface DatLichKhamRepository extends JpaRepository<DatLichKham, Intege
         CaLamViec ca,
         LocalTime gioKham
     );
+
+    /**
+     * Check bệnh nhân có conflict không (chỉ tính booking active, chưa xóa mềm)
+     */
+    @Query("""
+        SELECT COUNT(d) > 0 
+        FROM DatLichKham d
+        WHERE d.benhNhan.nguoiDungID = :benhNhanID
+            AND d.ngayKham = :ngayKham
+            AND d.ca = :ca
+            AND d.gioKham = :gioKham
+            AND d.trangThai IN :activeStatuses
+            AND d.isDeleted = false
+        """)
+    boolean existsActivePatientConflict(
+        @Param("benhNhanID") Integer benhNhanID,
+        @Param("ngayKham") LocalDate ngayKham,
+        @Param("ca") CaLamViec ca,
+        @Param("gioKham") LocalTime gioKham,
+        @Param("activeStatuses") List<TrangThaiDatLich> activeStatuses
+    );
     
     /**
      * Tìm tất cả lịch của 1 bác sĩ

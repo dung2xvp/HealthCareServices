@@ -27,12 +27,6 @@ import java.time.LocalTime;
            @Index(name = "idx_maxacnhan", columnList = "MaXacNhan"),
            @Index(name = "idx_trangthai_ngay", columnList = "TrangThai, NgayKham"),
            @Index(name = "idx_bacsi_trangthai", columnList = "BacSiID, TrangThai")
-       },
-       uniqueConstraints = {
-           @UniqueConstraint(
-               name = "unique_booking_slot_active",
-               columnNames = {"BacSiID", "NgayKham", "Ca", "GioKham", "IsDeleted"}
-           )
        })
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -81,7 +75,7 @@ public class DatLichKham extends BaseEntity {
     @Column(name = "TrangThai", nullable = false, length = 30)
     private TrangThaiDatLich trangThai = TrangThaiDatLich.CHO_XAC_NHAN_BAC_SI;
 
-    @Column(name = "MaXacNhan", unique = true, nullable = false, length = 8)
+    @Column(name = "MaXacNhan", unique = true, nullable = false, length = 32)
     private String maXacNhan;
 
     @Column(name = "NgayDat", nullable = false)

@@ -23,9 +23,9 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -73,6 +73,9 @@ public class BookingService {
     private static final int MAX_SCHEDULE_RANGE_DAYS = 31;
     // Bước slot mặc định (phút). Có thể đổi thành cấu hình sau.
     private static final int DEFAULT_SLOT_MINUTES = 30;
+    private static final String FRIENDLY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final int CONFIRM_CODE_RANDOM_LEN = 6; // Tổng độ dài mã = 2(prefix) + 6 = 8
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     // ========================================
     // BOOKING CREATION
@@ -100,24 +103,33 @@ public class BookingService {
             throw new BadRequestException("Bác sĩ hiện không nhận khám");
         }
 
-        // 3. Check duplicate slot (simplified check)
-        boolean slotOccupied = datLichKhamRepository.existsByBacSi_BacSiIDAndNgayKhamAndCaAndGioKham(
+        List<TrangThaiDatLich> activeStatuses = Arrays.asList(
+            TrangThaiDatLich.CHO_XAC_NHAN_BAC_SI,
+            TrangThaiDatLich.CHO_THANH_TOAN,
+            TrangThaiDatLich.DA_XAC_NHAN,
+            TrangThaiDatLich.DANG_KHAM
+        );
+
+        // 3. Check duplicate slot (only active & not deleted)
+        boolean slotOccupied = datLichKhamRepository.existsActiveBookingForSlot(
             request.getBacSiID(),
             request.getNgayKham(),
             request.getCa(),
-            request.getGioKham()
+            request.getGioKham(),
+            activeStatuses
         );
 
         if (slotOccupied) {
             throw new ConflictException("Khung giờ này đã có người đặt");
         }
 
-        // 4. Check patient conflict
-        boolean patientConflict = datLichKhamRepository.existsByBenhNhan_NguoiDungIDAndNgayKhamAndCaAndGioKham(
+        // 4. Check patient conflict (only active & not deleted)
+        boolean patientConflict = datLichKhamRepository.existsActivePatientConflict(
             currentUserId,
             request.getNgayKham(),
             request.getCa(),
-            request.getGioKham()
+            request.getGioKham(),
+            activeStatuses
         );
 
         if (patientConflict) {
@@ -159,7 +171,11 @@ public class BookingService {
         try {
             booking = datLichKhamRepository.save(booking);
         } catch (DataIntegrityViolationException e) {
-            // Bắt lỗi unique constraint trùng slot
+            // Nếu DB còn unique index cũ gây trùng dù booking đã hủy/hoàn thành
+            if (e.getMessage() != null && e.getMessage().contains("unique_booking_slot_active")) {
+                throw new ConflictException("Khung giờ này đã có người đặt (unique index cũ). Vui lòng drop index unique_booking_slot_active.");
+            }
+            // Bắt lỗi unique khác
             throw new ConflictException("Khung giờ này đã có người đặt (trùng slot)");
         }
         log.info("✅ Created booking #{}", booking.getDatLichID());
@@ -219,9 +235,20 @@ public class BookingService {
      * Tạo mã xác nhận
      */
     private String generateConfirmationCode() {
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String random = String.format("%04d", new Random().nextInt(10000));
-        return "BK" + timestamp + random;
+        // Sinh mã thân thiện cho người nhập: BK + 6 ký tự (2-9,A-H,J-N,P-Z), tổng 8 ký tự
+        for (int attempt = 0; attempt < 5; attempt++) {
+            StringBuilder sb = new StringBuilder("BK");
+            for (int i = 0; i < CONFIRM_CODE_RANDOM_LEN; i++) {
+                int idx = RANDOM.nextInt(FRIENDLY_ALPHABET.length());
+                sb.append(FRIENDLY_ALPHABET.charAt(idx));
+            }
+            String code = sb.toString();
+            boolean exists = datLichKhamRepository.findByMaXacNhan(code).isPresent();
+            if (!exists) {
+                return code;
+            }
+        }
+        throw new IllegalStateException("Không thể sinh mã xác nhận (trùng quá nhiều lần)");
     }
 
     // ========================================
@@ -411,6 +438,43 @@ public class BookingService {
 
         log.info("✅ Appointment #{} completed", booking.getDatLichID());
         return BookingResponse.of(booking);
+    }
+
+    /**
+     * Xác nhận đã thanh toán tiền mặt (LeTan/BacSi/Admin)
+     */
+    @Transactional
+    public BookingResponse confirmCashPayment(Integer datLichID) {
+        DatLichKham booking = getBookingById(datLichID);
+
+        if (booking.getPhuongThucThanhToan() != PhuongThucThanhToan.TIEN_MAT) {
+            throw new BadRequestException("Chỉ áp dụng xác nhận tiền mặt cho phương thức TIEN_MAT");
+        }
+        if (booking.getTrangThaiThanhToan() == TrangThaiThanhToan.THANH_CONG) {
+            return BookingResponse.of(booking); // đã thanh toán rồi
+        }
+
+        booking.setTrangThaiThanhToan(TrangThaiThanhToan.THANH_CONG);
+        booking.setNgayThanhToan(LocalDateTime.now());
+        booking.setMaGiaoDich("CASH_CONFIRM_" + System.currentTimeMillis());
+
+        booking = datLichKhamRepository.save(booking);
+        return BookingResponse.of(booking);
+    }
+
+    /**
+     * Xác nhận thanh toán tiền mặt bằng mã xác nhận
+     */
+    @Transactional
+    public BookingResponse confirmCashPaymentByCode(String confirmationCode) {
+        DatLichKham booking = datLichKhamRepository.findByMaXacNhan(confirmationCode)
+            .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy booking với mã này"));
+
+        if (Boolean.TRUE.equals(booking.getIsDeleted())) {
+            throw new BadRequestException("Booking đã bị xóa");
+        }
+
+        return confirmCashPayment(booking.getDatLichID());
     }
 
     // ========================================

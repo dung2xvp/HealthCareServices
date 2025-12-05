@@ -427,6 +427,50 @@ public class BookingController {
         ));
     }
 
+    /**
+     * Xác nhận đã thanh toán tiền mặt (Lễ tân/Bác sĩ/Admin)
+     */
+    @PostMapping("/{id}/pay-cash")
+    @PreAuthorize("hasAnyAuthority('BacSi', 'Admin')")
+    @Operation(
+        summary = "Xác nhận thanh toán tiền mặt",
+        description = "Đánh dấu booking đã thanh toán tiền mặt tại quầy"
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Xác nhận thanh toán thành công"),
+        @ApiResponse(responseCode = "400", description = "Phương thức không phải tiền mặt")
+    })
+    public ResponseEntity<ApiResponseDTO<BookingResponse>> confirmCashPayment(
+        @Parameter(description = "ID lịch khám", example = "123")
+        @PathVariable Integer id
+    ) {
+        BookingResponse booking = bookingService.confirmCashPayment(id);
+        return ResponseEntity.ok(ApiResponseDTO.success(
+            booking,
+            "Đã xác nhận thanh toán tiền mặt"
+        ));
+    }
+
+    /**
+     * Xác nhận thanh toán tiền mặt bằng mã xác nhận (Bác sĩ/Admin)
+     */
+    @PostMapping("/pay-cash/by-code")
+    @PreAuthorize("hasAnyAuthority('BacSi', 'Admin')")
+    @Operation(
+        summary = "Xác nhận thanh toán tiền mặt bằng mã xác nhận",
+        description = "Tìm booking bằng MaXacNhan và đánh dấu đã thanh toán tiền mặt"
+    )
+    public ResponseEntity<ApiResponseDTO<BookingResponse>> confirmCashPaymentByCode(
+        @Parameter(description = "Mã xác nhận booking", example = "BK2512050830001234")
+        @RequestParam("code") String confirmationCode
+    ) {
+        BookingResponse booking = bookingService.confirmCashPaymentByCode(confirmationCode);
+        return ResponseEntity.ok(ApiResponseDTO.success(
+            booking,
+            "Đã xác nhận thanh toán tiền mặt theo mã"
+        ));
+    }
+
     // ========================================
     // HELPER METHODS
     // ========================================
