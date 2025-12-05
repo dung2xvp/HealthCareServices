@@ -30,8 +30,8 @@ import java.time.LocalTime;
        },
        uniqueConstraints = {
            @UniqueConstraint(
-               name = "unique_booking_slot",
-               columnNames = {"BacSiID", "NgayKham", "Ca", "GioKham", "TrangThai"}
+               name = "unique_booking_slot_active",
+               columnNames = {"BacSiID", "NgayKham", "Ca", "GioKham", "IsDeleted"}
            )
        })
 @Data

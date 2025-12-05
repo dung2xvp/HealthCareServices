@@ -12,6 +12,8 @@ import org.example.demo.dto.request.*;
 import org.example.demo.dto.response.ApiResponseDTO;
 import org.example.demo.dto.response.BookingResponse;
 import org.example.demo.dto.response.DoctorScheduleItemResponse;
+import org.example.demo.dto.response.AvailableSlotsResponse;
+import org.example.demo.dto.response.BookingStatisticsResponse;
 import org.example.demo.security.CustomUserDetails;
 import org.example.demo.service.BookingService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +59,57 @@ public class BookingController {
     // ========================================
     // PATIENT ENDPOINTS
     // ========================================
+
+    /**
+     * Thống kê booking (Admin)
+     */
+    @GetMapping("/statistics")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(
+        summary = "Thống kê booking",
+        description = "Thống kê tổng quan: số lượng theo trạng thái, theo ngày/tuần/tháng, doanh thu, đánh giá, hoàn tiền"
+    )
+    public ResponseEntity<ApiResponseDTO<BookingStatisticsResponse>> getStatistics() {
+        BookingStatisticsResponse response = bookingService.getBookingStatistics();
+        return ResponseEntity.ok(ApiResponseDTO.success(response, "Lấy thống kê booking thành công"));
+    }
+
+    /**
+     * Tìm slot trống theo bác sĩ / ngày / ca
+     */
+    @GetMapping("/available-slots")
+    @PreAuthorize("hasAnyAuthority('BenhNhan', 'BacSi', 'Admin')")
+    @Operation(
+        summary = "Tìm slot trống",
+        description = "Trả về danh sách slot (theo bước cấu hình) cho 1 bác sĩ trong ngày/ca"
+    )
+    public ResponseEntity<ApiResponseDTO<AvailableSlotsResponse>> searchAvailableSlots(
+        @Valid SearchAvailableSlotsRequest request
+    ) {
+        AvailableSlotsResponse response = bookingService.searchAvailableSlots(request);
+        return ResponseEntity.ok(ApiResponseDTO.success(response, "Lấy danh sách slot thành công"));
+    }
+
+    /**
+     * Tìm slot trống của 1 bác sĩ cho 1 ngày (trong 7 ngày từ hôm nay)
+     */
+    @GetMapping("/doctor/{id}/available-slots/day")
+    @PreAuthorize("hasAnyAuthority('BenhNhan', 'BacSi', 'Admin')")
+    @Operation(
+        summary = "Xem slot trống trong 1 ngày",
+        description = "Trả về slot trống theo ca cho bác sĩ trong 1 ngày (giới hạn 7 ngày từ hôm nay)"
+    )
+    public ResponseEntity<ApiResponseDTO<List<AvailableSlotsResponse>>> getAvailableSlotsForDay(
+        @Parameter(description = "ID bác sĩ", example = "5")
+        @PathVariable("id") Integer bacSiId,
+
+        @Parameter(description = "Ngày cần xem (default = hôm nay)", example = "2025-12-05")
+        @RequestParam(value = "date", required = false)
+        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+    ) {
+        List<AvailableSlotsResponse> responses = bookingService.getAvailableSlotsForDay(bacSiId, date);
+        return ResponseEntity.ok(ApiResponseDTO.success(responses, "Lấy danh sách slot theo ngày thành công"));
+    }
 
     /**
      * Tạo lịch khám mới (Bệnh nhân)

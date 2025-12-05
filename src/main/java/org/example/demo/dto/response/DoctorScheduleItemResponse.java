@@ -52,6 +52,12 @@ public class DoctorScheduleItemResponse {
     @Schema(description = "Số slot đã đặt trong ca", example = "1")
     private Integer soSlotDaDat;
 
+    @Schema(description = "Tổng số slot trong ca (tính theo bước cấu hình)", example = "8")
+    private Integer tongSlot;
+
+    @Schema(description = "Số slot còn trống trong ca", example = "5")
+    private Integer slotConLai;
+
     @Schema(description = "Danh sách giờ đã đặt", example = "[\"08:00\", \"08:30\"]")
     private List<String> gioDaDat;
 
@@ -63,4 +69,5 @@ public class DoctorScheduleItemResponse {
         return String.format("%02d:%02d", time.getHour(), time.getMinute());
     }
 }
+
 

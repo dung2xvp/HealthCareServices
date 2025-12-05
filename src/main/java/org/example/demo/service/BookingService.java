@@ -4,6 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.demo.dto.request.*;
 import org.example.demo.dto.response.BookingResponse;
 import org.example.demo.dto.response.DoctorScheduleItemResponse;
+import org.example.demo.dto.response.AvailableSlotsResponse;
+import org.example.demo.dto.response.TimeSlotResponse;
+import org.example.demo.dto.response.BookingStatisticsResponse;
 import org.example.demo.entity.*;
 import org.example.demo.enums.*;
 import org.example.demo.exception.*;
@@ -11,6 +14,7 @@ import org.example.demo.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -66,6 +71,8 @@ public class BookingService {
     private static final int MAX_BOOKING_DAYS_AHEAD = 30;
     private static final int CANCELLATION_HOURS_BEFORE = 24;
     private static final int MAX_SCHEDULE_RANGE_DAYS = 31;
+    // Bước slot mặc định (phút). Có thể đổi thành cấu hình sau.
+    private static final int DEFAULT_SLOT_MINUTES = 30;
 
     // ========================================
     // BOOKING CREATION
@@ -149,7 +156,12 @@ public class BookingService {
             booking.setTrangThaiThanhToan(TrangThaiThanhToan.CHUA_THANH_TOAN);
         }
 
-        booking = datLichKhamRepository.save(booking);
+        try {
+            booking = datLichKhamRepository.save(booking);
+        } catch (DataIntegrityViolationException e) {
+            // Bắt lỗi unique constraint trùng slot
+            throw new ConflictException("Khung giờ này đã có người đặt (trùng slot)");
+        }
         log.info("✅ Created booking #{}", booking.getDatLichID());
 
         // Send notification (only for cash payment)
@@ -495,8 +507,16 @@ public class BookingService {
             List<LichLamViecMacDinh> schedulesForDay = scheduleByThu.getOrDefault(thu, Collections.emptyList());
 
             boolean leaveFullDay = leaves.stream().anyMatch(n ->
-                n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE &&
-                    currentDate.equals(n.getNgayNghiCuThe())
+                (n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE &&
+                    currentDate.equals(n.getNgayNghiCuThe())) ||
+                // Nghỉ ca cụ thể nhưng ca = null => nghỉ cả ngày đó
+                (n.getLoaiNghi() == LoaiNghi.CA_CU_THE &&
+                    n.getCa() == null &&
+                    currentDate.equals(n.getNgayNghiCuThe())) ||
+                // Nghỉ hàng tuần với ca = null => nghỉ cả ngày của thứ đó
+                (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN &&
+                    n.getCa() == null &&
+                    Objects.equals(n.getThuTrongTuan(), thu))
             );
 
             for (LichLamViecMacDinh schedule : schedulesForDay) {
@@ -508,6 +528,9 @@ public class BookingService {
                     schedule.getCa(),
                     activeStatuses
                 );
+
+                int totalSlots = calculateTotalSlots(schedule.getThoiGianBatDau(), schedule.getThoiGianKetThuc());
+                int remainingSlots = Math.max(totalSlots - bookedTimes.size(), 0);
 
                 DoctorScheduleItemResponse item = DoctorScheduleItemResponse.builder()
                     .ngay(currentDate)
@@ -521,8 +544,11 @@ public class BookingService {
                     .loaiNghi(resolveLoaiNghi(leaves, currentDate, thu, schedule.getCa(), leaveFullDay))
                     .ghiChuNghi(resolveLeaveNote(leaves, currentDate, thu, schedule.getCa(), leaveFullDay))
                     .soSlotDaDat(bookedTimes.size())
+                    .tongSlot(totalSlots)
+                    .slotConLai(remainingSlots)
                     .gioDaDat(bookedTimes.stream().map(DoctorScheduleItemResponse::formatTime).toList())
-                    .available(!onLeave && bookedTimes.isEmpty())
+                    // Còn nhận lịch nếu không nghỉ và còn slot trống
+                    .available(!onLeave && remainingSlots > 0)
                     .build();
 
                 result.add(item);
@@ -532,14 +558,97 @@ public class BookingService {
         return result;
     }
 
+    /**
+     * Tìm danh sách slot trống cho 1 bác sĩ/ngày/ca
+     * Lưu ý: dựa trên lịch mặc định toàn viện + nghỉ đã duyệt; chưa có lịch riêng từng bác sĩ
+     */
+    @Transactional(readOnly = true)
+    public AvailableSlotsResponse searchAvailableSlots(SearchAvailableSlotsRequest request) {
+        request.validate();
+        validateBookingDate(request.getNgayKham());
+
+        BacSi doctor = bacSiRepository.findById(request.getBacSiID())
+            .orElseThrow(() -> new ResourceNotFoundException("Bác sĩ không tồn tại"));
+        if (!Boolean.TRUE.equals(doctor.getTrangThaiCongViec())) {
+            throw new BadRequestException("Bác sĩ hiện không nhận khám");
+        }
+
+        int thu = convertToThuTrongTuan(request.getNgayKham());
+        // Lấy lịch mặc định theo thứ + ca
+        LichLamViecMacDinh schedule = lichLamViecMacDinhRepository.findByThuAndCa(thu, request.getCa())
+            .orElseThrow(() -> new BadRequestException("Bác sĩ không làm việc ca này theo lịch mặc định"));
+
+        // Lấy nghỉ trong ngày này (đủ cho 1 ngày)
+        List<BacSiNgayNghi> leaves = bacSiNgayNghiRepository.findApprovedLeavesOnDate(
+            request.getBacSiID(),
+            request.getNgayKham(),
+            thu
+        );
+
+        List<TrangThaiDatLich> activeStatuses = Arrays.asList(
+            TrangThaiDatLich.CHO_THANH_TOAN,
+            TrangThaiDatLich.CHO_XAC_NHAN_BAC_SI,
+            TrangThaiDatLich.DA_XAC_NHAN,
+            TrangThaiDatLich.DANG_KHAM
+        );
+
+        return buildAvailableSlotsResponse(doctor, request.getNgayKham(), schedule, leaves, activeStatuses);
+    }
+
+    /**
+     * Lấy slot trống cho 1 bác sĩ trong 1 ngày (tối đa trong 7 ngày kể từ hôm nay)
+     */
+    @Transactional(readOnly = true)
+    public List<AvailableSlotsResponse> getAvailableSlotsForDay(Integer bacSiId, LocalDate date) {
+        LocalDate target = date != null ? date : LocalDate.now();
+        validateBookingDate(target);
+        // giới hạn trong 7 ngày từ hôm nay
+        if (ChronoUnit.DAYS.between(LocalDate.now(), target) > 6) {
+            throw new BadRequestException("Chỉ cho phép xem trong phạm vi 7 ngày kể từ hôm nay");
+        }
+
+        BacSi doctor = bacSiRepository.findById(bacSiId)
+            .orElseThrow(() -> new ResourceNotFoundException("Bác sĩ không tồn tại"));
+        if (!Boolean.TRUE.equals(doctor.getTrangThaiCongViec())) {
+            throw new BadRequestException("Bác sĩ hiện không nhận khám");
+        }
+
+        int thu = convertToThuTrongTuan(target);
+        List<LichLamViecMacDinh> schedulesForDay = lichLamViecMacDinhRepository.findByThuTrongTuan(thu);
+
+        List<BacSiNgayNghi> leaves = bacSiNgayNghiRepository.findApprovedLeavesOnDate(
+            bacSiId,
+            target,
+            thu
+        );
+
+        List<TrangThaiDatLich> activeStatuses = Arrays.asList(
+            TrangThaiDatLich.CHO_THANH_TOAN,
+            TrangThaiDatLich.CHO_XAC_NHAN_BAC_SI,
+            TrangThaiDatLich.DA_XAC_NHAN,
+            TrangThaiDatLich.DANG_KHAM
+        );
+
+        List<AvailableSlotsResponse> result = new ArrayList<>();
+        for (LichLamViecMacDinh schedule : schedulesForDay) {
+            AvailableSlotsResponse resp = buildAvailableSlotsResponse(doctor, target, schedule, leaves, activeStatuses);
+            result.add(resp);
+        }
+        return result;
+    }
+
     private boolean isLeaveForShift(List<BacSiNgayNghi> leaves, LocalDate date, int thu, CaLamViec ca) {
         return leaves.stream().anyMatch(n -> {
             if (n.getLoaiNghi() == LoaiNghi.CA_CU_THE) {
-                return date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                // ca = null => nghỉ cả ngày, coi là nghỉ mọi ca trong ngày
+                boolean fullDay = date.equals(n.getNgayNghiCuThe()) && n.getCa() == null;
+                boolean exactShift = date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                return fullDay || exactShift;
             }
             if (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN) {
                 boolean sameDay = Objects.equals(n.getThuTrongTuan(), thu);
-                boolean caMatch = n.getCa() == null || n.getCa() == ca; // null = nghỉ cả ngày
+                // ca = null => nghỉ cả ngày trong thứ đó
+                boolean caMatch = n.getCa() == null || n.getCa() == ca;
                 return sameDay && caMatch;
             }
             return false;
@@ -559,7 +668,9 @@ public class BookingService {
         return leaves.stream()
             .filter(n -> {
                 if (n.getLoaiNghi() == LoaiNghi.CA_CU_THE) {
-                    return date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                    boolean fullDay = date.equals(n.getNgayNghiCuThe()) && n.getCa() == null;
+                    boolean exactShift = date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                    return fullDay || exactShift;
                 }
                 if (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN) {
                     boolean sameDay = Objects.equals(n.getThuTrongTuan(), thu);
@@ -582,11 +693,17 @@ public class BookingService {
     ) {
         return leaves.stream()
             .filter(n -> {
-                if (leaveFullDay && n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE && date.equals(n.getNgayNghiCuThe())) {
+                if (leaveFullDay &&
+                    ((n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE && date.equals(n.getNgayNghiCuThe())) ||
+                     (n.getLoaiNghi() == LoaiNghi.CA_CU_THE && date.equals(n.getNgayNghiCuThe()) && n.getCa() == null) ||
+                     (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN && Objects.equals(n.getThuTrongTuan(), thu) && n.getCa() == null))
+                ) {
                     return true;
                 }
                 if (n.getLoaiNghi() == LoaiNghi.CA_CU_THE) {
-                    return date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                    boolean fullDay = date.equals(n.getNgayNghiCuThe()) && n.getCa() == null;
+                    boolean exactShift = date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                    return fullDay || exactShift;
                 }
                 if (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN) {
                     boolean sameDay = Objects.equals(n.getThuTrongTuan(), thu);
@@ -598,6 +715,118 @@ public class BookingService {
             .map(BacSiNgayNghi::getLyDo)
             .findFirst()
             .orElse(null);
+    }
+
+    /**
+     * Tính số slot trong một ca dựa trên bước slot mặc định
+     */
+    private int calculateTotalSlots(LocalTime start, LocalTime end) {
+        if (start == null || end == null) return 0;
+        long minutes = ChronoUnit.MINUTES.between(start, end);
+        if (minutes <= 0) return 0;
+        return (int) Math.ceil(minutes / (double) DEFAULT_SLOT_MINUTES);
+    }
+
+    /**
+     * Sinh danh sách giờ bắt đầu slot trong khoảng [start, end)
+     */
+    private List<LocalTime> generateSlots(LocalTime start, LocalTime end) {
+        List<LocalTime> result = new ArrayList<>();
+        if (start == null || end == null) return result;
+        LocalTime cursor = start;
+        while (cursor.isBefore(end)) {
+            result.add(cursor);
+            cursor = cursor.plusMinutes(DEFAULT_SLOT_MINUTES);
+        }
+        return result;
+    }
+
+    private long safeCount(Long value) {
+        return value != null ? value : 0L;
+    }
+
+    private BigDecimal toBigDecimal(Double value) {
+        return value != null ? BigDecimal.valueOf(value).setScale(0, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+    }
+
+    /**
+     * Helper: build response slot trống cho 1 ngày/ca
+     */
+    private AvailableSlotsResponse buildAvailableSlotsResponse(
+        BacSi doctor,
+        LocalDate ngayKham,
+        LichLamViecMacDinh schedule,
+        List<BacSiNgayNghi> leaves,
+        List<TrangThaiDatLich> activeStatuses
+    ) {
+        int thu = convertToThuTrongTuan(ngayKham);
+
+        boolean leaveFullDay = leaves.stream().anyMatch(n ->
+            (n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE && ngayKham.equals(n.getNgayNghiCuThe())) ||
+                (n.getLoaiNghi() == LoaiNghi.CA_CU_THE && n.getCa() == null && ngayKham.equals(n.getNgayNghiCuThe())) ||
+                (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN && n.getCa() == null && Objects.equals(n.getThuTrongTuan(), thu))
+        );
+        boolean leaveThisShift = leaveFullDay || isLeaveForShift(leaves, ngayKham, thu, schedule.getCa());
+
+        if (leaveThisShift) {
+            AvailableSlotsResponse resp = AvailableSlotsResponse.builder()
+                .bacSiID(doctor.getBacSiID())
+                .tenBacSi(doctor.getNguoiDung().getHoTen())
+                .tenChuyenKhoa(doctor.getChuyenKhoa() != null ? doctor.getChuyenKhoa().getTenChuyenKhoa() : null)
+                .tenTrinhDo(doctor.getTrinhDo() != null ? doctor.getTrinhDo().getTenTrinhDo() : null)
+                .avatarUrl(doctor.getNguoiDung().getAvatarUrl())
+                .ngayKham(ngayKham)
+                .ca(schedule.getCa())
+                .tenCa(schedule.getCa().getTenCa())
+                .giaKham(doctor.getGiaKham())
+                .slots(Collections.emptyList())
+                .totalSlots(0)
+                .availableSlots(0)
+                .bookedSlots(0)
+                .hasAvailableSlots(false)
+                .build();
+            resp.calculate();
+            return resp;
+        }
+
+        List<LocalTime> bookedTimes = datLichKhamRepository.findBookedTimeSlots(
+            doctor.getBacSiID(),
+            ngayKham,
+            schedule.getCa(),
+            activeStatuses
+        );
+
+        List<LocalTime> generatedSlots = generateSlots(schedule.getThoiGianBatDau(), schedule.getThoiGianKetThuc());
+        Set<LocalTime> bookedSet = new HashSet<>(bookedTimes);
+
+        List<TimeSlotResponse> slotResponses = generatedSlots.stream()
+            .map(time -> TimeSlotResponse.builder()
+                .gioKham(time)
+                .gioBatDau(time)
+                .gioKetThuc(time.plusMinutes(DEFAULT_SLOT_MINUTES))
+                .available(!bookedSet.contains(time))
+                .label(String.format("%s - %s",
+                    DoctorScheduleItemResponse.formatTime(time),
+                    DoctorScheduleItemResponse.formatTime(time.plusMinutes(DEFAULT_SLOT_MINUTES))
+                ))
+                .build()
+            )
+            .toList();
+
+        AvailableSlotsResponse response = AvailableSlotsResponse.builder()
+            .bacSiID(doctor.getBacSiID())
+            .tenBacSi(doctor.getNguoiDung().getHoTen())
+            .tenChuyenKhoa(doctor.getChuyenKhoa() != null ? doctor.getChuyenKhoa().getTenChuyenKhoa() : null)
+            .tenTrinhDo(doctor.getTrinhDo() != null ? doctor.getTrinhDo().getTenTrinhDo() : null)
+            .avatarUrl(doctor.getNguoiDung().getAvatarUrl())
+            .ngayKham(ngayKham)
+            .ca(schedule.getCa())
+            .tenCa(schedule.getCa().getTenCa())
+            .giaKham(doctor.getGiaKham())
+            .slots(slotResponses)
+            .build();
+        response.calculate();
+        return response;
     }
 
     private int convertToThuTrongTuan(LocalDate date) {
@@ -651,6 +880,90 @@ public class BookingService {
 
         log.info("✅ Booking #{} rated with {} stars", booking.getDatLichID(), request.getSoSao());
         return BookingResponse.of(booking);
+    }
+
+    /**
+     * Thống kê booking cho admin dashboard
+     */
+    @Transactional(readOnly = true)
+    public BookingStatisticsResponse getBookingStatistics() {
+        LocalDate today = LocalDate.now();
+        LocalDate weekStart = today.minusDays(today.getDayOfWeek().getValue() - 1); // Monday
+        LocalDate weekEnd = weekStart.plusDays(6);
+        LocalDate monthStart = today.with(TemporalAdjusters.firstDayOfMonth());
+        LocalDate monthEnd = today.with(TemporalAdjusters.lastDayOfMonth());
+
+        long total = safeCount(datLichKhamRepository.countAllActive());
+
+        long pendingApproval = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.CHO_XAC_NHAN_BAC_SI));
+        long pendingPayment = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.CHO_THANH_TOAN));
+        long confirmed = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.DA_XAC_NHAN));
+        long inProgress = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.DANG_KHAM));
+        long completed = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.HOAN_THANH));
+        long rejected = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.TU_CHOI));
+        long cancelled = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.HUY_BOI_BENH_NHAN))
+                + safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.HUY_BOI_BAC_SI))
+                + safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.HUY_BOI_ADMIN));
+        long noShow = safeCount(datLichKhamRepository.countByTrangThai(TrangThaiDatLich.KHONG_DEN));
+
+        long todayBookings = safeCount(datLichKhamRepository.countByDateRange(today, today));
+        long weekBookings = safeCount(datLichKhamRepository.countByDateRange(weekStart, weekEnd));
+        long monthBookings = safeCount(datLichKhamRepository.countByDateRange(monthStart, monthEnd));
+
+        BigDecimal totalRevenue = toBigDecimal(datLichKhamRepository.calculateTotalRevenue());
+        BigDecimal todayRevenue = toBigDecimal(datLichKhamRepository.calculateRevenueByDateRange(
+                today.atStartOfDay(), today.plusDays(1).atStartOfDay().minusNanos(1)));
+        BigDecimal weekRevenue = toBigDecimal(datLichKhamRepository.calculateRevenueByDateRange(
+                weekStart.atStartOfDay(), weekEnd.plusDays(1).atStartOfDay().minusNanos(1)));
+        BigDecimal monthRevenue = toBigDecimal(datLichKhamRepository.calculateRevenueByDateRange(
+                monthStart.atStartOfDay(), monthEnd.plusDays(1).atStartOfDay().minusNanos(1)));
+
+        long paidBookings = safeCount(datLichKhamRepository.countByPaymentStatus(TrangThaiThanhToan.THANH_CONG));
+        long unpaidBookings = safeCount(datLichKhamRepository.countByPaymentStatus(TrangThaiThanhToan.CHUA_THANH_TOAN))
+                + safeCount(datLichKhamRepository.countByPaymentStatus(TrangThaiThanhToan.DANG_XU_LY))
+                + safeCount(datLichKhamRepository.countByPaymentStatus(TrangThaiThanhToan.THAT_BAI));
+        long refundCount = safeCount(datLichKhamRepository.countRefunds());
+        BigDecimal totalRefund = toBigDecimal(datLichKhamRepository.calculateTotalRefund());
+
+        Double averageRating = datLichKhamRepository.calculateAverageRatingAll();
+        long totalRatings = safeCount(datLichKhamRepository.countRatingsAll());
+        long fiveStars = safeCount(datLichKhamRepository.countRatingsByStarsAll(5));
+        long fourStars = safeCount(datLichKhamRepository.countRatingsByStarsAll(4));
+        long threeStars = safeCount(datLichKhamRepository.countRatingsByStarsAll(3));
+        long twoStars = safeCount(datLichKhamRepository.countRatingsByStarsAll(2));
+        long oneStar = safeCount(datLichKhamRepository.countRatingsByStarsAll(1));
+
+        BookingStatisticsResponse response = BookingStatisticsResponse.builder()
+                .totalBookings(total)
+                .pendingApproval(pendingApproval)
+                .pendingPayment(pendingPayment)
+                .confirmed(confirmed)
+                .inProgress(inProgress)
+                .completed(completed)
+                .cancelled(cancelled)
+                .noShow(noShow)
+                .rejected(rejected)
+                .todayBookings(todayBookings)
+                .thisWeekBookings(weekBookings)
+                .thisMonthBookings(monthBookings)
+                .totalRevenue(totalRevenue)
+                .todayRevenue(todayRevenue)
+                .thisWeekRevenue(weekRevenue)
+                .thisMonthRevenue(monthRevenue)
+                .averageRating(averageRating != null ? averageRating : 0.0)
+                .totalRatings(totalRatings)
+                .fiveStars(fiveStars)
+                .fourStars(fourStars)
+                .threeStars(threeStars)
+                .twoStars(twoStars)
+                .oneStar(oneStar)
+                .paidBookings(paidBookings)
+                .unpaidBookings(unpaidBookings)
+                .refundCount(refundCount)
+                .totalRefund(totalRefund)
+                .build();
+        response.calculate();
+        return response;
     }
 
     // ========================================

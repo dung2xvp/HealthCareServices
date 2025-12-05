@@ -487,5 +487,60 @@ public interface DatLichKhamRepository extends JpaRepository<DatLichKham, Intege
             AND d.isDeleted = false
         """)
     Long countRefunds();
+
+    // ==========================================
+    // GLOBAL STATISTICS (Admin dashboard)
+    // ==========================================
+
+    @Query("""
+        SELECT COUNT(d)
+        FROM DatLichKham d
+        WHERE d.isDeleted = false
+        """)
+    Long countAllActive();
+
+    @Query("""
+        SELECT COUNT(d)
+        FROM DatLichKham d
+        WHERE d.ngayKham BETWEEN :from AND :to
+            AND d.isDeleted = false
+        """)
+    Long countByDateRange(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to
+    );
+
+    @Query("""
+        SELECT COUNT(d)
+        FROM DatLichKham d
+        WHERE d.trangThaiThanhToan = :status
+            AND d.isDeleted = false
+        """)
+    Long countByPaymentStatus(@Param("status") org.example.demo.enums.TrangThaiThanhToan status);
+
+    @Query("""
+        SELECT COUNT(d)
+        FROM DatLichKham d
+        WHERE d.soSao IS NOT NULL
+            AND d.isDeleted = false
+        """)
+    Long countRatingsAll();
+
+    @Query("""
+        SELECT COUNT(d)
+        FROM DatLichKham d
+        WHERE d.soSao IS NOT NULL
+            AND d.soSao = :stars
+            AND d.isDeleted = false
+        """)
+    Long countRatingsByStarsAll(@Param("stars") Integer stars);
+
+    @Query("""
+        SELECT AVG(d.soSao)
+        FROM DatLichKham d
+        WHERE d.soSao IS NOT NULL
+            AND d.isDeleted = false
+        """)
+    Double calculateAverageRatingAll();
 }
 
