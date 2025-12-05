@@ -3,6 +3,7 @@ package org.example.demo.service;
 import lombok.extern.slf4j.Slf4j;
 import org.example.demo.dto.request.*;
 import org.example.demo.dto.response.BookingResponse;
+import org.example.demo.dto.response.DoctorScheduleItemResponse;
 import org.example.demo.entity.*;
 import org.example.demo.enums.*;
 import org.example.demo.exception.*;
@@ -17,8 +18,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * BookingService - Simplified Version
@@ -53,8 +57,15 @@ public class BookingService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private BacSiNgayNghiRepository bacSiNgayNghiRepository;
+
+    @Autowired
+    private LichLamViecMacDinhRepository lichLamViecMacDinhRepository;
+
     private static final int MAX_BOOKING_DAYS_AHEAD = 30;
     private static final int CANCELLATION_HOURS_BEFORE = 24;
+    private static final int MAX_SCHEDULE_RANGE_DAYS = 31;
 
     // ========================================
     // BOOKING CREATION
@@ -434,6 +445,177 @@ public class BookingService {
         return bookings.stream()
             .map(BookingResponse::of)
             .toList();
+    }
+
+    /**
+     * Lấy lịch làm việc thực tế của 1 bác sĩ trong khoảng ngày (cho bệnh nhân/ bác sĩ xem)
+     */
+    @Transactional(readOnly = true)
+    public List<DoctorScheduleItemResponse> getDoctorSchedule(
+        Integer bacSiId,
+        LocalDate fromDate,
+        LocalDate toDate
+    ) {
+        LocalDate from = fromDate != null ? fromDate : LocalDate.now();
+        LocalDate to = toDate != null ? toDate : from.plusDays(6);
+
+        if (to.isBefore(from)) {
+            throw new BadRequestException("Ngày kết thúc phải lớn hơn hoặc bằng ngày bắt đầu");
+        }
+        if (ChronoUnit.DAYS.between(from, to) > MAX_SCHEDULE_RANGE_DAYS) {
+            throw new BadRequestException("Chỉ cho phép xem tối đa 31 ngày một lần");
+        }
+
+        BacSi doctor = bacSiRepository.findById(bacSiId)
+            .orElseThrow(() -> new ResourceNotFoundException("Bác sĩ không tồn tại"));
+        if (Boolean.FALSE.equals(doctor.getTrangThaiCongViec())) {
+            throw new BadRequestException("Bác sĩ hiện không nhận khám");
+        }
+
+        List<LichLamViecMacDinh> defaultSchedules = lichLamViecMacDinhRepository.findAllActive()
+            .stream()
+            .filter(LichLamViecMacDinh::getIsActive)
+            .toList();
+        Map<Integer, List<LichLamViecMacDinh>> scheduleByThu = defaultSchedules.stream()
+            .collect(Collectors.groupingBy(LichLamViecMacDinh::getThuTrongTuan));
+
+        List<BacSiNgayNghi> leaves = bacSiNgayNghiRepository.findApprovedLeavesInRange(bacSiId, from, to);
+
+        List<TrangThaiDatLich> activeStatuses = Arrays.asList(
+            TrangThaiDatLich.CHO_XAC_NHAN_BAC_SI,
+            TrangThaiDatLich.DA_XAC_NHAN,
+            TrangThaiDatLich.DANG_KHAM
+        );
+
+        List<DoctorScheduleItemResponse> result = new ArrayList<>();
+
+        for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
+            LocalDate currentDate = date;
+            int thu = convertToThuTrongTuan(currentDate);
+            List<LichLamViecMacDinh> schedulesForDay = scheduleByThu.getOrDefault(thu, Collections.emptyList());
+
+            boolean leaveFullDay = leaves.stream().anyMatch(n ->
+                n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE &&
+                    currentDate.equals(n.getNgayNghiCuThe())
+            );
+
+            for (LichLamViecMacDinh schedule : schedulesForDay) {
+                boolean onLeave = leaveFullDay || isLeaveForShift(leaves, currentDate, thu, schedule.getCa());
+
+                List<LocalTime> bookedTimes = datLichKhamRepository.findBookedTimeSlots(
+                    bacSiId,
+                    currentDate,
+                    schedule.getCa(),
+                    activeStatuses
+                );
+
+                DoctorScheduleItemResponse item = DoctorScheduleItemResponse.builder()
+                    .ngay(currentDate)
+                    .thu(thu)
+                    .tenThu(getTenThu(thu))
+                    .ca(schedule.getCa())
+                    .tenCa(schedule.getCa().getTenCa())
+                    .gioBatDau(DoctorScheduleItemResponse.formatTime(schedule.getThoiGianBatDau()))
+                    .gioKetThuc(DoctorScheduleItemResponse.formatTime(schedule.getThoiGianKetThuc()))
+                    .isOnLeave(onLeave)
+                    .loaiNghi(resolveLoaiNghi(leaves, currentDate, thu, schedule.getCa(), leaveFullDay))
+                    .ghiChuNghi(resolveLeaveNote(leaves, currentDate, thu, schedule.getCa(), leaveFullDay))
+                    .soSlotDaDat(bookedTimes.size())
+                    .gioDaDat(bookedTimes.stream().map(DoctorScheduleItemResponse::formatTime).toList())
+                    .available(!onLeave && bookedTimes.isEmpty())
+                    .build();
+
+                result.add(item);
+            }
+        }
+
+        return result;
+    }
+
+    private boolean isLeaveForShift(List<BacSiNgayNghi> leaves, LocalDate date, int thu, CaLamViec ca) {
+        return leaves.stream().anyMatch(n -> {
+            if (n.getLoaiNghi() == LoaiNghi.CA_CU_THE) {
+                return date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+            }
+            if (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN) {
+                boolean sameDay = Objects.equals(n.getThuTrongTuan(), thu);
+                boolean caMatch = n.getCa() == null || n.getCa() == ca; // null = nghỉ cả ngày
+                return sameDay && caMatch;
+            }
+            return false;
+        });
+    }
+
+    private LoaiNghi resolveLoaiNghi(
+        List<BacSiNgayNghi> leaves,
+        LocalDate date,
+        int thu,
+        CaLamViec ca,
+        boolean leaveFullDay
+    ) {
+        if (leaveFullDay) {
+            return LoaiNghi.NGAY_CU_THE;
+        }
+        return leaves.stream()
+            .filter(n -> {
+                if (n.getLoaiNghi() == LoaiNghi.CA_CU_THE) {
+                    return date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                }
+                if (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN) {
+                    boolean sameDay = Objects.equals(n.getThuTrongTuan(), thu);
+                    boolean caMatch = n.getCa() == null || n.getCa() == ca;
+                    return sameDay && caMatch;
+                }
+                return false;
+            })
+            .map(BacSiNgayNghi::getLoaiNghi)
+            .findFirst()
+            .orElse(null);
+    }
+
+    private String resolveLeaveNote(
+        List<BacSiNgayNghi> leaves,
+        LocalDate date,
+        int thu,
+        CaLamViec ca,
+        boolean leaveFullDay
+    ) {
+        return leaves.stream()
+            .filter(n -> {
+                if (leaveFullDay && n.getLoaiNghi() == LoaiNghi.NGAY_CU_THE && date.equals(n.getNgayNghiCuThe())) {
+                    return true;
+                }
+                if (n.getLoaiNghi() == LoaiNghi.CA_CU_THE) {
+                    return date.equals(n.getNgayNghiCuThe()) && ca == n.getCa();
+                }
+                if (n.getLoaiNghi() == LoaiNghi.CA_HANG_TUAN) {
+                    boolean sameDay = Objects.equals(n.getThuTrongTuan(), thu);
+                    boolean caMatch = n.getCa() == null || n.getCa() == ca;
+                    return sameDay && caMatch;
+                }
+                return false;
+            })
+            .map(BacSiNgayNghi::getLyDo)
+            .findFirst()
+            .orElse(null);
+    }
+
+    private int convertToThuTrongTuan(LocalDate date) {
+        // Java DayOfWeek: MONDAY=1 ... SUNDAY=7. Hệ thống: 2=Mon ... 8=Sun
+        return date.getDayOfWeek().getValue() + 1;
+    }
+
+    private String getTenThu(int thu) {
+        return switch (thu) {
+            case 2 -> "Thứ 2";
+            case 3 -> "Thứ 3";
+            case 4 -> "Thứ 4";
+            case 5 -> "Thứ 5";
+            case 6 -> "Thứ 6";
+            case 7 -> "Thứ 7";
+            case 8 -> "Chủ nhật";
+            default -> "Không xác định";
+        };
     }
 
     // ========================================

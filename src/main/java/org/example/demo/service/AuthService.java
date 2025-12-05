@@ -2,6 +2,7 @@ package org.example.demo.service;
 
 import org.example.demo.dto.request.LoginRequest;
 import org.example.demo.dto.request.RegisterRequest;
+import org.example.demo.dto.request.UpdateUserRequest;
 import org.example.demo.dto.response.AuthResponse;
 import org.example.demo.dto.response.UserResponse;
 import org.example.demo.entity.NguoiDung;
@@ -287,6 +288,38 @@ public class AuthService {
         // 4. Đổi password
         nguoiDung.setMatKhau(passwordEncoder.encode(newPassword));
         nguoiDungRepository.save(nguoiDung);
+    }
+
+    /**
+     * Cập nhật thông tin người dùng đang đăng nhập
+     */
+    @Transactional
+    public UserResponse updateCurrentUser(UpdateUserRequest request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()
+            || !(authentication.getPrincipal() instanceof CustomUserDetails)) {
+            throw new UnauthorizedException("Bạn chưa đăng nhập");
+        }
+
+        CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
+        Integer userId = userDetails.getNguoiDungID();
+
+        NguoiDung nguoiDung = nguoiDungRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+
+        // Không cho đổi email/vai trò
+        nguoiDung.setHoTen(request.getHoTen());
+        nguoiDung.setSoDienThoai(request.getSoDienThoai());
+        nguoiDung.setDiaChi(request.getDiaChi());
+        nguoiDung.setNgaySinh(request.getNgaySinh());
+        if (request.getGioiTinh() != null) {
+            nguoiDung.setGioiTinh(request.getGioiTinh());
+        }
+        nguoiDung.setAvatarUrl(request.getAvatarUrl());
+
+        nguoiDungRepository.save(nguoiDung);
+        return convertToUserResponse(nguoiDung);
     }
 
     /**

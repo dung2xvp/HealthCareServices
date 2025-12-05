@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.demo.dto.request.*;
 import org.example.demo.dto.response.ApiResponseDTO;
 import org.example.demo.dto.response.BookingResponse;
+import org.example.demo.dto.response.DoctorScheduleItemResponse;
 import org.example.demo.security.CustomUserDetails;
 import org.example.demo.service.BookingService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -235,6 +237,38 @@ public class BookingController {
         return ResponseEntity.ok(ApiResponseDTO.success(
             appointments,
             String.format("Tìm thấy %d lịch hẹn", appointments.size())
+        ));
+    }
+
+    /**
+     * Xem lịch làm việc thực tế của bác sĩ (cho phép bệnh nhân xem để đặt)
+     */
+    @GetMapping("/doctor/{id}/schedule")
+    @PreAuthorize("hasAnyAuthority('BenhNhan', 'BacSi', 'Admin')")
+    @Operation(
+        summary = "Xem lịch làm việc thực tế của bác sĩ",
+        description = "Hiển thị ca làm việc, ca nghỉ đã duyệt và slot đã đặt trong khoảng ngày (mặc định 7 ngày từ hôm nay)"
+    )
+    public ResponseEntity<ApiResponseDTO<List<DoctorScheduleItemResponse>>> getDoctorSchedule(
+        @Parameter(description = "ID bác sĩ", example = "10")
+        @PathVariable Integer id,
+
+        @Parameter(description = "Từ ngày (yyyy-MM-dd), mặc định = hôm nay", example = "2025-12-05")
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+
+        @Parameter(description = "Đến ngày (yyyy-MM-dd), mặc định = +6 ngày", example = "2025-12-12")
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to
+    ) {
+        log.info("🗓️ View doctor schedule for doctor {} from {} to {}", id, from, to);
+
+        List<DoctorScheduleItemResponse> schedule = bookingService.getDoctorSchedule(id, from, to);
+
+        return ResponseEntity.ok(ApiResponseDTO.success(
+            schedule,
+            String.format("Lấy lịch làm việc từ %s đến %s", 
+                schedule.isEmpty() ? (from != null ? from : LocalDate.now()) : schedule.get(0).getNgay(),
+                to != null ? to : (from != null ? from.plusDays(6) : LocalDate.now().plusDays(6))
+            )
         ));
     }
 

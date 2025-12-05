@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.example.demo.dto.request.LoginRequest;
 import org.example.demo.dto.request.RegisterRequest;
+import org.example.demo.dto.request.UpdateUserRequest;
 import org.example.demo.dto.response.AuthResponse;
 import org.example.demo.dto.response.ErrorResponse;
 import org.example.demo.dto.response.MessageResponse;
@@ -20,6 +21,7 @@ import org.example.demo.service.AuthService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -213,6 +215,26 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getCurrentUser() {
         UserResponse userResponse = authService.getCurrentUser();
+        return ResponseEntity.ok(userResponse);
+    }
+
+    /**
+     * Cập nhật thông tin người dùng hiện tại
+     */
+    @Operation(summary = "Cập nhật thông tin cá nhân",
+               description = "Cập nhật họ tên, số điện thoại, địa chỉ, ngày sinh, giới tính, avatar",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Cập nhật thành công",
+                    content = @Content(schema = @Schema(implementation = UserResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Chưa đăng nhập",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PutMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<UserResponse> updateCurrentUser(
+            @Valid @RequestBody UpdateUserRequest request) {
+        UserResponse userResponse = authService.updateCurrentUser(request);
         return ResponseEntity.ok(userResponse);
     }
 }
