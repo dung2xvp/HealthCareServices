@@ -7,14 +7,20 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
+import org.example.demo.dto.request.UpdateCoSoYTeRequest;
 import org.example.demo.dto.response.CoSoYTeResponse;
 import org.example.demo.dto.response.ErrorResponse;
 import org.example.demo.entity.CoSoYTe;
 import org.example.demo.exception.ResourceNotFoundException;
 import org.example.demo.repository.CoSoYTeRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -66,6 +72,42 @@ public class CoSoYTeController {
             .findFirst()
             .orElseThrow(() -> new ResourceNotFoundException("Không có cơ sở y tế nào"));
         return ResponseEntity.ok(CoSoYTeResponse.fromEntity(coSo));
+    }
+
+    @Operation(summary = "Cập nhật thông tin cơ sở y tế")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Cập nhật thành công",
+            content = @Content(schema = @Schema(implementation = CoSoYTeResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Không tìm thấy",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('Admin')")
+    public ResponseEntity<CoSoYTeResponse> updateFacility(
+        @PathVariable Integer id,
+        @Valid @RequestBody UpdateCoSoYTeRequest request
+    ) {
+        CoSoYTe coSo = coSoYTeRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy cơ sở y tế"));
+
+        applyUpdate(coSo, request);
+        coSoYTeRepository.save(coSo);
+
+        return ResponseEntity.status(HttpStatus.OK)
+            .body(CoSoYTeResponse.fromEntity(coSo));
+    }
+
+    private void applyUpdate(CoSoYTe entity, UpdateCoSoYTeRequest req) {
+        if (req.getTenCoSo() != null) entity.setTenCoSo(req.getTenCoSo());
+        if (req.getDiaChi() != null) entity.setDiaChi(req.getDiaChi());
+        if (req.getSoDienThoai() != null) entity.setSoDienThoai(req.getSoDienThoai());
+        if (req.getEmail() != null) entity.setEmail(req.getEmail());
+        if (req.getWebsite() != null) entity.setWebsite(req.getWebsite());
+        if (req.getMoTa() != null) entity.setMoTa(req.getMoTa());
+        if (req.getAnhDaiDien() != null) entity.setAnhDaiDien(req.getAnhDaiDien());
+        if (req.getLogo() != null) entity.setLogo(req.getLogo());
+        if (req.getGioLamViec() != null) entity.setGioLamViec(req.getGioLamViec());
+        if (req.getNgayLamViec() != null) entity.setNgayLamViec(req.getNgayLamViec());
     }
 }
 

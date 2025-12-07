@@ -125,8 +125,8 @@ public class NgayNghiPendingResponse {
     ) {
         // Get BacSi info
         org.example.demo.entity.BacSi bacSi = entity.getBacSi();
-        org.example.demo.entity.NguoiDung nguoiDung = 
-            bacSi != null ? getNguoiDungFromBacSi(bacSi) : null;
+        org.example.demo.entity.NguoiDung nguoiDung =
+            bacSi != null ? bacSi.getNguoiDung() : null;
         
         NgayNghiPendingResponseBuilder builder = NgayNghiPendingResponse.builder()
             .nghiID(entity.getNghiID())
@@ -183,14 +183,6 @@ public class NgayNghiPendingResponse {
     }
     
     // ===== HELPER METHODS =====
-    
-    private static org.example.demo.entity.NguoiDung getNguoiDungFromBacSi(
-        org.example.demo.entity.BacSi bacSi
-    ) {
-        // This should be fetched from repository in actual service
-        // For now, return null - Service will handle proper fetching
-        return null;
-    }
     
     private static String getMoTaLoaiNghi(LoaiNghi loaiNghi) {
         return switch (loaiNghi) {

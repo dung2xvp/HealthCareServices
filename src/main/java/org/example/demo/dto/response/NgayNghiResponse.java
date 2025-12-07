@@ -162,6 +162,9 @@ public class NgayNghiResponse {
         NgayNghiResponseBuilder builder = NgayNghiResponse.builder()
             .nghiID(entity.getNghiID())
             .bacSiID(entity.getBacSi().getBacSiID())
+            .tenBacSi(entity.getBacSi().getNguoiDung().getHoTen())
+            .avatarBacSi(entity.getBacSi().getNguoiDung().getAvatarUrl())
+            .tenChuyenKhoa(entity.getBacSi().getChuyenKhoa().getTenChuyenKhoa())
             .loaiNghi(entity.getLoaiNghi())
             .ngayNghiCuThe(entity.getNgayNghiCuThe())
             .thuTrongTuan(entity.getThuTrongTuan())
@@ -191,6 +194,11 @@ public class NgayNghiResponse {
         }
         
         builder.thoiGianNghiDisplay(buildThoiGianNghiDisplay(entity));
+
+        if (entity.getNguoiDuyet() != null) {
+            builder.nguoiDuyetID(entity.getNguoiDuyet().getNguoiDungID());
+            builder.tenNguoiDuyet(entity.getNguoiDuyet().getHoTen());
+        }
         
         if (entity.getTrangThai() == TrangThaiNghi.CHO_DUYET) {
             builder.soNgayChoXuLy(
