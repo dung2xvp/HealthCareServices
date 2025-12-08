@@ -16,6 +16,11 @@ import org.example.demo.security.CustomUserDetails;
 import org.example.demo.security.JwtTokenProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -25,6 +30,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -337,6 +344,50 @@ public class AuthService {
         NguoiDung nguoiDung = userDetails.getNguoiDung();
 
         return convertToUserResponse(nguoiDung);
+    }
+
+    public Page<UserResponse> searchUsers(
+            String keyword,
+            VaiTro vaiTro,
+            Boolean trangThai,
+            Boolean isDeleted,
+            int page,
+            int size,
+            String sortBy,
+            Sort.Direction direction
+    ) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        Specification<NguoiDung> spec = buildUserSpecification(keyword, vaiTro, trangThai, isDeleted);
+        return nguoiDungRepository.findAll(spec, pageable).map(this::convertToUserResponse);
+    }
+
+    private Specification<NguoiDung> buildUserSpecification(
+            String keyword,
+            VaiTro vaiTro,
+            Boolean trangThai,
+            Boolean isDeleted
+    ) {
+        return (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            if (keyword != null && !keyword.isBlank()) {
+                String like = "%" + keyword.trim().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("hoTen")), like),
+                        cb.like(cb.lower(root.get("email")), like),
+                        cb.like(cb.lower(root.get("soDienThoai")), like)
+                ));
+            }
+            if (vaiTro != null) {
+                predicates.add(cb.equal(root.get("vaiTro"), vaiTro));
+            }
+            if (trangThai != null) {
+                predicates.add(cb.equal(root.get("trangThai"), trangThai));
+            }
+            if (isDeleted != null) {
+                predicates.add(cb.equal(root.get("isDeleted"), isDeleted));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
     }
 
     /**

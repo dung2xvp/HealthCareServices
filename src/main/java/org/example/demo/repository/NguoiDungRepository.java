@@ -3,6 +3,7 @@ package org.example.demo.repository;
 import org.example.demo.entity.NguoiDung;
 import org.example.demo.enums.VaiTro;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -13,7 +14,7 @@ import java.util.Optional;
  * Xử lý: Authentication, User Management
  */
 @Repository
-public interface NguoiDungRepository extends JpaRepository<NguoiDung, Integer> {
+public interface NguoiDungRepository extends JpaRepository<NguoiDung, Integer>, JpaSpecificationExecutor<NguoiDung> {
     
     /**
      * Tìm user theo email (dùng cho LOGIN)
