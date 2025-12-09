@@ -3,6 +3,7 @@ package org.example.demo.repository;
 import org.example.demo.entity.DatLichKham;
 import org.example.demo.enums.CaLamViec;
 import org.example.demo.enums.TrangThaiDatLich;
+import org.example.demo.enums.PhuongThucThanhToan;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -42,6 +43,11 @@ public interface DatLichKhamRepository extends JpaRepository<DatLichKham, Intege
      * Use case: Check-in, lookup booking
      */
     Optional<DatLichKham> findByMaXacNhan(String maXacNhan);
+
+    /**
+     * Tìm lịch khám theo mã giao dịch thanh toán
+     */
+    Optional<DatLichKham> findByMaGiaoDich(String maGiaoDich);
     
     /**
      * Tìm tất cả lịch của 1 bệnh nhân
@@ -103,6 +109,85 @@ public interface DatLichKhamRepository extends JpaRepository<DatLichKham, Intege
      * Tìm tất cả lịch của 1 bác sĩ
      */
     List<DatLichKham> findByBacSi_BacSiIDOrderByNgayKhamDesc(Integer bacSiID);
+
+    // ==========================================
+    // HISTORY QUERIES - Lịch sử khám
+    // ==========================================
+
+    @Query("""
+        SELECT d FROM DatLichKham d
+        WHERE d.benhNhan.nguoiDungID = :benhNhanID
+            AND d.isDeleted = false
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+            AND (:status IS NULL OR d.trangThai = :status)
+            AND (:paymentMethod IS NULL OR d.phuongThucThanhToan = :paymentMethod)
+            AND (:hasRating IS NULL OR (:hasRating = true AND d.soSao IS NOT NULL) OR (:hasRating = false AND d.soSao IS NULL))
+            AND (:doctorId IS NULL OR d.bacSi.bacSiID = :doctorId)
+            AND (:facilityId IS NULL OR d.coSoYTe.coSoID = :facilityId)
+        ORDER BY d.ngayKham DESC, d.gioKham DESC
+        """)
+    Page<DatLichKham> searchPatientHistory(
+        @Param("benhNhanID") Integer benhNhanID,
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate,
+        @Param("status") TrangThaiDatLich status,
+        @Param("paymentMethod") PhuongThucThanhToan paymentMethod,
+        @Param("hasRating") Boolean hasRating,
+        @Param("doctorId") Integer doctorId,
+        @Param("facilityId") Integer facilityId,
+        Pageable pageable
+    );
+
+    @Query("""
+        SELECT d FROM DatLichKham d
+        WHERE d.bacSi.bacSiID = :bacSiID
+            AND d.isDeleted = false
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+            AND (:status IS NULL OR d.trangThai = :status)
+            AND (:paymentMethod IS NULL OR d.phuongThucThanhToan = :paymentMethod)
+            AND (:hasRating IS NULL OR (:hasRating = true AND d.soSao IS NOT NULL) OR (:hasRating = false AND d.soSao IS NULL))
+            AND (:patientId IS NULL OR d.benhNhan.nguoiDungID = :patientId)
+            AND (:facilityId IS NULL OR d.coSoYTe.coSoID = :facilityId)
+        ORDER BY d.ngayKham DESC, d.gioKham DESC
+        """)
+    Page<DatLichKham> searchDoctorHistory(
+        @Param("bacSiID") Integer bacSiID,
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate,
+        @Param("status") TrangThaiDatLich status,
+        @Param("paymentMethod") PhuongThucThanhToan paymentMethod,
+        @Param("hasRating") Boolean hasRating,
+        @Param("patientId") Integer patientId,
+        @Param("facilityId") Integer facilityId,
+        Pageable pageable
+    );
+
+    @Query("""
+        SELECT d FROM DatLichKham d
+        WHERE d.isDeleted = false
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+            AND (:status IS NULL OR d.trangThai = :status)
+            AND (:paymentMethod IS NULL OR d.phuongThucThanhToan = :paymentMethod)
+            AND (:hasRating IS NULL OR (:hasRating = true AND d.soSao IS NOT NULL) OR (:hasRating = false AND d.soSao IS NULL))
+            AND (:doctorId IS NULL OR d.bacSi.bacSiID = :doctorId)
+            AND (:patientId IS NULL OR d.benhNhan.nguoiDungID = :patientId)
+            AND (:facilityId IS NULL OR d.coSoYTe.coSoID = :facilityId)
+        ORDER BY d.ngayKham DESC, d.gioKham DESC
+        """)
+    Page<DatLichKham> searchAdminHistory(
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate,
+        @Param("status") TrangThaiDatLich status,
+        @Param("paymentMethod") PhuongThucThanhToan paymentMethod,
+        @Param("hasRating") Boolean hasRating,
+        @Param("doctorId") Integer doctorId,
+        @Param("patientId") Integer patientId,
+        @Param("facilityId") Integer facilityId,
+        Pageable pageable
+    );
     
     // ==========================================
     // AVAILABLE SLOTS - Tìm slot trống

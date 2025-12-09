@@ -96,6 +96,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/**",
                     "/api/info",
+                    "/api/payments/vnpay/return",
+                    "/api/payments/vnpay/ipn",
                     // Swagger UI endpoints
                     "/swagger-ui/**",
                     "/v3/api-docs/**",

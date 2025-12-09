@@ -511,6 +511,35 @@ public class BookingService {
     }
 
     /**
+     * Lịch sử khám của bệnh nhân (có lọc)
+     */
+    @Transactional(readOnly = true)
+    public Page<BookingResponse> getPatientHistory(
+        Integer benhNhanID,
+        LocalDate fromDate,
+        LocalDate toDate,
+        TrangThaiDatLich status,
+        PhuongThucThanhToan paymentMethod,
+        Boolean hasRating,
+        Integer doctorId,
+        Integer facilityId,
+        Pageable pageable
+    ) {
+        Page<DatLichKham> bookings = datLichKhamRepository.searchPatientHistory(
+            benhNhanID,
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            doctorId,
+            facilityId,
+            pageable
+        );
+        return bookings.map(BookingResponse::of);
+    }
+
+    /**
      * Lấy lịch hẹn của bác sĩ
      */
     @Transactional(readOnly = true)
@@ -521,6 +550,35 @@ public class BookingService {
         return bookings.stream()
             .map(BookingResponse::of)
             .toList();
+    }
+
+    /**
+     * Lịch sử khám của bác sĩ (có lọc)
+     */
+    @Transactional(readOnly = true)
+    public Page<BookingResponse> getDoctorHistory(
+        Integer bacSiID,
+        LocalDate fromDate,
+        LocalDate toDate,
+        TrangThaiDatLich status,
+        PhuongThucThanhToan paymentMethod,
+        Boolean hasRating,
+        Integer patientId,
+        Integer facilityId,
+        Pageable pageable
+    ) {
+        Page<DatLichKham> bookings = datLichKhamRepository.searchDoctorHistory(
+            bacSiID,
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            patientId,
+            facilityId,
+            pageable
+        );
+        return bookings.map(BookingResponse::of);
     }
 
     /**
@@ -620,6 +678,35 @@ public class BookingService {
         }
 
         return result;
+    }
+
+    /**
+     * Lịch sử khám cho admin (có lọc)
+     */
+    @Transactional(readOnly = true)
+    public Page<BookingResponse> getAdminHistory(
+        LocalDate fromDate,
+        LocalDate toDate,
+        TrangThaiDatLich status,
+        PhuongThucThanhToan paymentMethod,
+        Boolean hasRating,
+        Integer doctorId,
+        Integer patientId,
+        Integer facilityId,
+        Pageable pageable
+    ) {
+        Page<DatLichKham> bookings = datLichKhamRepository.searchAdminHistory(
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            doctorId,
+            patientId,
+            facilityId,
+            pageable
+        );
+        return bookings.map(BookingResponse::of);
     }
 
     /**

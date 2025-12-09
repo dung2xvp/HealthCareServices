@@ -16,6 +16,8 @@ import org.example.demo.dto.response.AvailableSlotsResponse;
 import org.example.demo.dto.response.BookingStatisticsResponse;
 import org.example.demo.security.CustomUserDetails;
 import org.example.demo.service.BookingService;
+import org.example.demo.enums.TrangThaiDatLich;
+import org.example.demo.enums.PhuongThucThanhToan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -174,6 +176,44 @@ public class BookingController {
     }
 
     /**
+     * Lịch sử khám của bệnh nhân (có lọc)
+     */
+    @GetMapping("/history")
+    @PreAuthorize("hasAuthority('BenhNhan')")
+    @Operation(
+        summary = "Lịch sử khám (bệnh nhân)",
+        description = "Xem lịch sử khám của chính mình, có lọc theo ngày, trạng thái, thanh toán, đánh giá"
+    )
+    public ResponseEntity<ApiResponseDTO<Page<BookingResponse>>> getPatientHistory(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+        @RequestParam(required = false) TrangThaiDatLich status,
+        @RequestParam(required = false) PhuongThucThanhToan paymentMethod,
+        @RequestParam(required = false) Boolean hasRating,
+        @RequestParam(required = false) Integer doctorId,
+        @RequestParam(required = false) Integer facilityId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size,
+        @RequestParam(defaultValue = "ngayKham") String sortBy,
+        @RequestParam(defaultValue = "DESC") Sort.Direction direction,
+        @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        Page<BookingResponse> bookings = bookingService.getPatientHistory(
+            userDetails.getNguoiDungID(),
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            doctorId,
+            facilityId,
+            pageable
+        );
+        return ResponseEntity.ok(ApiResponseDTO.success(bookings, "Lấy lịch sử khám thành công"));
+    }
+
+    /**
      * Xem chi tiết 1 lịch khám
      */
     @GetMapping("/{id}")
@@ -294,6 +334,44 @@ public class BookingController {
     }
 
     /**
+     * Lịch sử khám của bác sĩ (có lọc)
+     */
+    @GetMapping("/doctor/history")
+    @PreAuthorize("hasAuthority('BacSi')")
+    @Operation(
+        summary = "Lịch sử khám (bác sĩ)",
+        description = "Bác sĩ xem lịch sử khám của mình, có lọc theo ngày, trạng thái, thanh toán, đánh giá"
+    )
+    public ResponseEntity<ApiResponseDTO<Page<BookingResponse>>> getDoctorHistory(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+        @RequestParam(required = false) TrangThaiDatLich status,
+        @RequestParam(required = false) PhuongThucThanhToan paymentMethod,
+        @RequestParam(required = false) Boolean hasRating,
+        @RequestParam(required = false) Integer patientId,
+        @RequestParam(required = false) Integer facilityId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size,
+        @RequestParam(defaultValue = "ngayKham") String sortBy,
+        @RequestParam(defaultValue = "DESC") Sort.Direction direction,
+        @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        Page<BookingResponse> bookings = bookingService.getDoctorHistory(
+            userDetails.getNguoiDungID(),
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            patientId,
+            facilityId,
+            pageable
+        );
+        return ResponseEntity.ok(ApiResponseDTO.success(bookings, "Lấy lịch sử khám của bác sĩ thành công"));
+    }
+
+    /**
      * Xem lịch làm việc thực tế của bác sĩ (cho phép bệnh nhân xem để đặt)
      */
     @GetMapping("/doctor/{id}/schedule")
@@ -359,6 +437,44 @@ public class BookingController {
             : "Đã từ chối lịch hẹn";
         
         return ResponseEntity.ok(ApiResponseDTO.success(booking, message));
+    }
+
+    /**
+     * Lịch sử khám cho admin (có lọc)
+     */
+    @GetMapping("/admin/history")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(
+        summary = "Lịch sử khám (admin)",
+        description = "Admin xem lịch sử khám toàn hệ thống, có lọc theo ngày, trạng thái, thanh toán, bác sĩ, bệnh nhân, cơ sở"
+    )
+    public ResponseEntity<ApiResponseDTO<Page<BookingResponse>>> getAdminHistory(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+        @RequestParam(required = false) TrangThaiDatLich status,
+        @RequestParam(required = false) PhuongThucThanhToan paymentMethod,
+        @RequestParam(required = false) Boolean hasRating,
+        @RequestParam(required = false) Integer doctorId,
+        @RequestParam(required = false) Integer patientId,
+        @RequestParam(required = false) Integer facilityId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size,
+        @RequestParam(defaultValue = "ngayKham") String sortBy,
+        @RequestParam(defaultValue = "DESC") Sort.Direction direction
+    ) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        Page<BookingResponse> bookings = bookingService.getAdminHistory(
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            doctorId,
+            patientId,
+            facilityId,
+            pageable
+        );
+        return ResponseEntity.ok(ApiResponseDTO.success(bookings, "Lấy lịch sử khám thành công"));
     }
 
     /**
