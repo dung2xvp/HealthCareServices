@@ -188,6 +188,103 @@ public interface DatLichKhamRepository extends JpaRepository<DatLichKham, Intege
         @Param("facilityId") Integer facilityId,
         Pageable pageable
     );
+
+    // ==========================================
+    // THỐNG KÊ DOANH THU / SỐ CA
+    // ==========================================
+
+    @Query("""
+        SELECT new org.example.demo.dto.response.SpecialtyRevenueResponse(
+            d.bacSi.chuyenKhoa.chuyenKhoaID,
+            d.bacSi.chuyenKhoa.tenChuyenKhoa,
+            COALESCE(SUM(d.giaKham), 0),
+            COUNT(d)
+        )
+        FROM DatLichKham d
+        WHERE d.isDeleted = false
+            AND d.trangThai = org.example.demo.enums.TrangThaiDatLich.HOAN_THANH
+            AND d.trangThaiThanhToan = org.example.demo.enums.TrangThaiThanhToan.THANH_CONG
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+        GROUP BY d.bacSi.chuyenKhoa.chuyenKhoaID, d.bacSi.chuyenKhoa.tenChuyenKhoa
+        ORDER BY SUM(d.giaKham) DESC
+        """)
+    List<org.example.demo.dto.response.SpecialtyRevenueResponse> revenueBySpecialty(
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate
+    );
+
+    @Query("""
+        SELECT new org.example.demo.dto.response.DoctorRevenueResponse(
+            d.bacSi.bacSiID,
+            d.bacSi.nguoiDung.hoTen,
+            d.bacSi.chuyenKhoa.chuyenKhoaID,
+            d.bacSi.chuyenKhoa.tenChuyenKhoa,
+            COALESCE(SUM(d.giaKham), 0),
+            COUNT(d)
+        )
+        FROM DatLichKham d
+        WHERE d.isDeleted = false
+            AND d.trangThai = org.example.demo.enums.TrangThaiDatLich.HOAN_THANH
+            AND d.trangThaiThanhToan = org.example.demo.enums.TrangThaiThanhToan.THANH_CONG
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+        GROUP BY d.bacSi.bacSiID, d.bacSi.nguoiDung.hoTen, d.bacSi.chuyenKhoa.chuyenKhoaID, d.bacSi.chuyenKhoa.tenChuyenKhoa
+        ORDER BY SUM(d.giaKham) DESC
+        """)
+    Page<org.example.demo.dto.response.DoctorRevenueResponse> revenueByDoctor(
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate,
+        Pageable pageable
+    );
+
+    @Query("""
+        SELECT new org.example.demo.dto.response.DoctorRevenueResponse(
+            d.bacSi.bacSiID,
+            d.bacSi.nguoiDung.hoTen,
+            d.bacSi.chuyenKhoa.chuyenKhoaID,
+            d.bacSi.chuyenKhoa.tenChuyenKhoa,
+            COALESCE(SUM(d.giaKham), 0),
+            COUNT(d)
+        )
+        FROM DatLichKham d
+        WHERE d.isDeleted = false
+            AND d.trangThai = org.example.demo.enums.TrangThaiDatLich.HOAN_THANH
+            AND d.trangThaiThanhToan = org.example.demo.enums.TrangThaiThanhToan.THANH_CONG
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+        GROUP BY d.bacSi.bacSiID, d.bacSi.nguoiDung.hoTen, d.bacSi.chuyenKhoa.chuyenKhoaID, d.bacSi.chuyenKhoa.tenChuyenKhoa
+        ORDER BY SUM(d.giaKham) DESC
+        """)
+    Page<org.example.demo.dto.response.DoctorRevenueResponse> topDoctorRevenue(
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate,
+        Pageable pageable
+    );
+
+    @Query("""
+        SELECT new org.example.demo.dto.response.DoctorRevenueResponse(
+            d.bacSi.bacSiID,
+            d.bacSi.nguoiDung.hoTen,
+            d.bacSi.chuyenKhoa.chuyenKhoaID,
+            d.bacSi.chuyenKhoa.tenChuyenKhoa,
+            COALESCE(SUM(d.giaKham), 0),
+            COUNT(d)
+        )
+        FROM DatLichKham d
+        WHERE d.isDeleted = false
+            AND d.trangThai = org.example.demo.enums.TrangThaiDatLich.HOAN_THANH
+            AND d.trangThaiThanhToan = org.example.demo.enums.TrangThaiThanhToan.THANH_CONG
+            AND (:fromDate IS NULL OR d.ngayKham >= :fromDate)
+            AND (:toDate IS NULL OR d.ngayKham <= :toDate)
+        GROUP BY d.bacSi.bacSiID, d.bacSi.nguoiDung.hoTen, d.bacSi.chuyenKhoa.chuyenKhoaID, d.bacSi.chuyenKhoa.tenChuyenKhoa
+        ORDER BY COUNT(d) DESC, SUM(d.giaKham) DESC
+        """)
+    Page<org.example.demo.dto.response.DoctorRevenueResponse> topDoctorCompleted(
+        @Param("fromDate") LocalDate fromDate,
+        @Param("toDate") LocalDate toDate,
+        Pageable pageable
+    );
     
     // ==========================================
     // AVAILABLE SLOTS - Tìm slot trống

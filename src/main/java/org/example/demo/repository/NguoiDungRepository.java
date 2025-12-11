@@ -33,6 +33,11 @@ public interface NguoiDungRepository extends JpaRepository<NguoiDung, Integer>, 
      * @return true nếu số điện thoại đã tồn tại
      */
     Boolean existsBySoDienThoai(String soDienThoai);
+
+    /**
+     * Tìm user theo số điện thoại
+     */
+    Optional<NguoiDung> findBySoDienThoai(String soDienThoai);
     
     /**
      * Tìm user theo email VÀ trạng thái active

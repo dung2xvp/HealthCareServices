@@ -39,6 +39,9 @@ public class HoSoBenhAn {
     
     @Column(name = "BenhManTinh", columnDefinition = "TEXT")
     private String benhManTinh;
+
+    @Column(name = "ThuocDangDung", columnDefinition = "TEXT")
+    private String thuocDangDung;
     
     @Column(name = "PhauThuatDaQua", columnDefinition = "TEXT")
     private String phauThuatDaQua;

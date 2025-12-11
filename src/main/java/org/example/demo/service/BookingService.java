@@ -7,6 +7,9 @@ import org.example.demo.dto.response.DoctorScheduleItemResponse;
 import org.example.demo.dto.response.AvailableSlotsResponse;
 import org.example.demo.dto.response.TimeSlotResponse;
 import org.example.demo.dto.response.BookingStatisticsResponse;
+import org.example.demo.dto.response.SpecialtyRevenueResponse;
+import org.example.demo.dto.response.DoctorRevenueResponse;
+import org.example.demo.service.MedicalRecordService;
 import org.example.demo.entity.*;
 import org.example.demo.enums.*;
 import org.example.demo.exception.*;
@@ -14,6 +17,7 @@ import org.example.demo.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +59,9 @@ public class BookingService {
 
     @Autowired
     private NguoiDungRepository nguoiDungRepository;
+
+    @Autowired
+    private MedicalRecordService medicalRecordService;
 
     @Autowired
     private CoSoYTeRepository coSoYTeRepository;
@@ -180,6 +187,10 @@ public class BookingService {
         }
         log.info("✅ Created booking #{}", booking.getDatLichID());
 
+        if (request.hasMedicalInfo()) {
+            medicalRecordService.upsertFromBooking(patient, request);
+        }
+
         // Send notification (only for cash payment)
         if (request.getPhuongThucThanhToan() == PhuongThucThanhToan.TIEN_MAT) {
             try {
@@ -190,6 +201,43 @@ public class BookingService {
         }
 
         return BookingResponse.of(booking);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<BookingResponse> getDoctorHistoryByPhone(
+            Integer doctorId,
+            String phone,
+            LocalDate fromDate,
+            LocalDate toDate,
+            TrangThaiDatLich status,
+            PhuongThucThanhToan paymentMethod,
+            Boolean hasRating,
+            Integer doctorFilterId,
+            Pageable pageable
+    ) {
+        if (phone == null || phone.isBlank()) {
+            throw new BadRequestException("Số điện thoại không được trống");
+        }
+        NguoiDung patient = nguoiDungRepository.findBySoDienThoai(phone.trim())
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy bệnh nhân với số điện thoại này"));
+        if (patient.getVaiTro() != VaiTro.BenhNhan) {
+            throw new BadRequestException("Người dùng không phải bệnh nhân");
+        }
+        if (Boolean.TRUE.equals(patient.getIsDeleted())) {
+            throw new BadRequestException("Tài khoản bệnh nhân đã bị khóa/xóa");
+        }
+        Page<DatLichKham> bookings = datLichKhamRepository.searchAdminHistory(
+                fromDate,
+                toDate,
+                status,
+                paymentMethod,
+                hasRating,
+                doctorFilterId,
+                patient.getNguoiDungID(),
+                null,
+                pageable
+        );
+        return bookings.map(BookingResponse::of);
     }
 
     /**
@@ -1115,6 +1163,34 @@ public class BookingService {
                 .build();
         response.calculate();
         return response;
+    }
+
+    // ========================================
+    // THỐNG KÊ DOANH THU / TOP
+    // ========================================
+
+    @Transactional(readOnly = true)
+    public List<SpecialtyRevenueResponse> getRevenueBySpecialty(LocalDate fromDate, LocalDate toDate) {
+        return datLichKhamRepository.revenueBySpecialty(fromDate, toDate);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DoctorRevenueResponse> getRevenueByDoctor(LocalDate fromDate, LocalDate toDate) {
+        // trả tối đa 200 bản ghi để tránh trả quá lớn
+        Page<DoctorRevenueResponse> page = datLichKhamRepository.revenueByDoctor(fromDate, toDate, PageRequest.of(0, 200));
+        return page.getContent();
+    }
+
+    @Transactional(readOnly = true)
+    public List<DoctorRevenueResponse> getTopDoctorRevenue(LocalDate fromDate, LocalDate toDate, int size) {
+        int limit = Math.max(1, Math.min(size, 50)); // giới hạn tối đa 50
+        return datLichKhamRepository.topDoctorRevenue(fromDate, toDate, PageRequest.of(0, limit)).getContent();
+    }
+
+    @Transactional(readOnly = true)
+    public List<DoctorRevenueResponse> getTopDoctorCompleted(LocalDate fromDate, LocalDate toDate, int size) {
+        int limit = Math.max(1, Math.min(size, 50)); // giới hạn tối đa 50
+        return datLichKhamRepository.topDoctorCompleted(fromDate, toDate, PageRequest.of(0, limit)).getContent();
     }
 
     // ========================================

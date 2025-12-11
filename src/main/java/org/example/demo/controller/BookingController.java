@@ -14,6 +14,8 @@ import org.example.demo.dto.response.BookingResponse;
 import org.example.demo.dto.response.DoctorScheduleItemResponse;
 import org.example.demo.dto.response.AvailableSlotsResponse;
 import org.example.demo.dto.response.BookingStatisticsResponse;
+import org.example.demo.dto.response.SpecialtyRevenueResponse;
+import org.example.demo.dto.response.DoctorRevenueResponse;
 import org.example.demo.security.CustomUserDetails;
 import org.example.demo.service.BookingService;
 import org.example.demo.enums.TrangThaiDatLich;
@@ -74,6 +76,64 @@ public class BookingController {
     public ResponseEntity<ApiResponseDTO<BookingStatisticsResponse>> getStatistics() {
         BookingStatisticsResponse response = bookingService.getBookingStatistics();
         return ResponseEntity.ok(ApiResponseDTO.success(response, "Lấy thống kê booking thành công"));
+    }
+
+    /**
+     * Doanh thu theo chuyên khoa
+     */
+    @GetMapping("/statistics/revenue/specialties")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(summary = "Doanh thu theo chuyên khoa")
+    public ResponseEntity<ApiResponseDTO<List<SpecialtyRevenueResponse>>> revenueBySpecialty(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+        List<SpecialtyRevenueResponse> data = bookingService.getRevenueBySpecialty(fromDate, toDate);
+        return ResponseEntity.ok(ApiResponseDTO.success(data, "Lấy doanh thu theo chuyên khoa thành công"));
+    }
+
+    /**
+     * Doanh thu theo bác sĩ (full danh sách, tối đa 200)
+     */
+    @GetMapping("/statistics/revenue/doctors")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(summary = "Doanh thu theo bác sĩ")
+    public ResponseEntity<ApiResponseDTO<List<DoctorRevenueResponse>>> revenueByDoctor(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate
+    ) {
+        List<DoctorRevenueResponse> data = bookingService.getRevenueByDoctor(fromDate, toDate);
+        return ResponseEntity.ok(ApiResponseDTO.success(data, "Lấy doanh thu theo bác sĩ thành công"));
+    }
+
+    /**
+     * Top bác sĩ doanh thu cao nhất
+     */
+    @GetMapping("/statistics/top-doctors/revenue")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(summary = "Top bác sĩ theo doanh thu")
+    public ResponseEntity<ApiResponseDTO<List<DoctorRevenueResponse>>> topDoctorRevenue(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+        @RequestParam(defaultValue = "10") int size
+    ) {
+        List<DoctorRevenueResponse> data = bookingService.getTopDoctorRevenue(fromDate, toDate, size);
+        return ResponseEntity.ok(ApiResponseDTO.success(data, "Lấy top doanh thu bác sĩ thành công"));
+    }
+
+    /**
+     * Top bác sĩ có số ca khám hoàn thành cao nhất
+     */
+    @GetMapping("/statistics/top-doctors/completed")
+    @PreAuthorize("hasAuthority('Admin')")
+    @Operation(summary = "Top bác sĩ theo số ca hoàn thành")
+    public ResponseEntity<ApiResponseDTO<List<DoctorRevenueResponse>>> topDoctorCompleted(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+        @RequestParam(defaultValue = "10") int size
+    ) {
+        List<DoctorRevenueResponse> data = bookingService.getTopDoctorCompleted(fromDate, toDate, size);
+        return ResponseEntity.ok(ApiResponseDTO.success(data, "Lấy top bác sĩ theo số ca hoàn thành thành công"));
     }
 
     /**
@@ -369,6 +429,44 @@ public class BookingController {
             pageable
         );
         return ResponseEntity.ok(ApiResponseDTO.success(bookings, "Lấy lịch sử khám của bác sĩ thành công"));
+    }
+
+    /**
+     * Lịch sử khám của bệnh nhân theo số điện thoại (chỉ bác sĩ, giới hạn trong các lịch của chính bác sĩ)
+     */
+    @GetMapping("/doctor/history/by-phone")
+    @PreAuthorize("hasAuthority('BacSi')")
+    @Operation(
+        summary = "Lịch sử khám bệnh nhân theo số điện thoại",
+        description = "Bác sĩ tra cứu lịch sử khám của bệnh nhân bằng số điện thoại, chỉ trả về các lịch do chính bác sĩ này khám"
+    )
+    public ResponseEntity<ApiResponseDTO<Page<BookingResponse>>> getDoctorHistoryByPhone(
+        @RequestParam String phone,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+        @RequestParam(required = false) TrangThaiDatLich status,
+        @RequestParam(required = false) PhuongThucThanhToan paymentMethod,
+        @RequestParam(required = false) Boolean hasRating,
+        @RequestParam(required = false) Integer doctorId,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size,
+        @RequestParam(defaultValue = "ngayKham") String sortBy,
+        @RequestParam(defaultValue = "DESC") Sort.Direction direction,
+        @AuthenticationPrincipal CustomUserDetails userDetails
+    ) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        Page<BookingResponse> bookings = bookingService.getDoctorHistoryByPhone(
+            userDetails.getNguoiDungID(),
+            phone,
+            fromDate,
+            toDate,
+            status,
+            paymentMethod,
+            hasRating,
+            doctorId,
+            pageable
+        );
+        return ResponseEntity.ok(ApiResponseDTO.success(bookings, "Lấy lịch sử khám theo số điện thoại thành công"));
     }
 
     /**

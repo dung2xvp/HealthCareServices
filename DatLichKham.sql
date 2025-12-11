@@ -456,6 +456,7 @@ CREATE TABLE HoSoBenhAn (
     -- Tiền sử bệnh
     DiUng TEXT COMMENT 'Dị ứng thuốc, thực phẩm',
     BenhManTinh TEXT COMMENT 'Đái tháo đường, huyết áp...',
+    ThuocDangDung TEXT COMMENT 'Thuốc đang sử dụng',
     PhauThuatDaQua TEXT,
     TienSuGiaDinh TEXT,
     
